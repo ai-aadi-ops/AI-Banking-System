@@ -359,37 +359,5 @@ def get_dashboard(db: Session = Depends(get_db)):
             "income": "Stable monthly cash flow",
             "expenses": "Electronics spending increased",
             "savings": "Excellent saving habit"
-        }}
-@app.get("/spending-chart")
-def spending_chart(db: Session = Depends(get_db)):
-
-    transactions = (
-        db.query(Transaction)
-        .filter(Transaction.transaction_type == "Debit")
-        .all()
-    )
-
-    months = {
-        "Jan": 0,
-        "Feb": 0,
-        "Mar": 0,
-        "Apr": 0,
-        "May": 0,
-        "Jun": 0,
-        "Jul": 0,
-        "Aug": 0,
-        "Sep": 0,
-        "Oct": 0,
-        "Nov": 0,
-        "Dec": 0,
+        }
     }
-
-    for t in transactions:
-        month = t.transaction_date.strftime("%b")
-        if month in months:
-            months[month] += float(t.amount)
-
-    return [
-        {"month": k, "expense": v}
-        for k, v in months.items()
-    ]

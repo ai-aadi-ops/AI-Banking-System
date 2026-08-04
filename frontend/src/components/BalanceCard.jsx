@@ -1,3 +1,4 @@
+import { API_BASE } from "../config";
 import { Wallet, TrendingUp } from "lucide-react";
 import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
@@ -12,7 +13,7 @@ export default function BalanceCard() {
   });
 
   useEffect(() => {
-    fetch("http://127.0.0.1:8000/dashboard")
+    fetch(`${API_BASE}/dashboard`)
       .then((res) => res.json())
       .then((data) => setDashboard(data))
       .catch((err) => console.error(err));

@@ -1,3 +1,4 @@
+import { API_BASE } from "../config";
 import { useEffect, useState } from "react";
 import { PieChart } from "lucide-react";
 
@@ -5,7 +6,7 @@ export default function AISpendingInsights() {
   const [data, setData] = useState(null);
 
   useEffect(() => {
-    fetch("http://34.100.134.172:8000/ai/analyze/1")
+    fetch(`${API_BASE}/ai/analyze/1`)
       .then((res) => res.json())
       .then(setData)
       .catch(console.error);

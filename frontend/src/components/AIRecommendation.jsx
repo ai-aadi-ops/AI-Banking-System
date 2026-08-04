@@ -1,3 +1,4 @@
+import { API_BASE } from "../config";
 import { Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -5,7 +6,7 @@ export default function AIRecommendation() {
   const [health, setHealth] = useState(null);
 
   useEffect(() => {
-    fetch("http://34.100.134.172:8000/ai/financial-health/1")
+    fetch(`${API_BASE}/ai/financial-health/1`)
       .then((res) => res.json())
       .then((data) => setHealth(data))
       .catch(console.error);
