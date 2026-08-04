@@ -1,4 +1,4 @@
-# AI Banking Platform
+#My AI Banking Platform
 
 An AI-powered banking platform built with:
 
