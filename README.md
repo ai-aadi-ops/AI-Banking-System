@@ -554,6 +554,6 @@ Please give this repository a ⭐ on GitHub.
 
 It motivates me to build more AI-powered real-world applications.
 
-🚀 Happy Coding!
+🚀 Happy Coding! 
 
 </div>
