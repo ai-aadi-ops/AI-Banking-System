@@ -32,3 +32,4 @@ __pycache__/
 # Node
 frontend/node_modules/
 frontend/dist/
+frontend/minikube-linux-amd64
