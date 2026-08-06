@@ -1,4 +1,8 @@
+import { useNavigate } from "react-router-dom";
+
 export default function DashboardHeader() {
+  const navigate = useNavigate();
+
   return (
     <div className="flex items-center justify-between mb-10">
       <div>
@@ -13,7 +17,10 @@ export default function DashboardHeader() {
       </div>
 
       <div className="flex items-center gap-4">
-        <button className="rounded-xl bg-cyan-500 px-5 py-3 font-semibold hover:bg-cyan-600">
+        <button
+          onClick={() => navigate("/advisor")}
+          className="rounded-xl bg-cyan-500 px-5 py-3 font-semibold hover:bg-cyan-600 transition"
+        >
           AI Advisor
         </button>
 

@@ -1,50 +1,52 @@
+import { useEffect, useState } from "react";
 import {
   ShoppingBag,
   Coffee,
   CreditCard,
   ArrowDownLeft,
   ArrowUpRight,
+  Fuel,
+  Tv,
+  Home,
 } from "lucide-react";
+import { API_BASE } from "../config";
 
-const transactions = [
-  {
-    title: "Amazon Purchase",
-    date: "Today",
-    amount: "-$249.99",
-    icon: ShoppingBag,
-    color: "text-red-400",
-  },
-  {
-    title: "Starbucks",
-    date: "Yesterday",
-    amount: "-$8.45",
-    icon: Coffee,
-    color: "text-red-400",
-  },
-  {
-    title: "Salary",
-    date: "1 Aug",
-    amount: "+$5,800",
-    icon: ArrowDownLeft,
-    color: "text-green-400",
-  },
-  {
-    title: "Credit Card Payment",
-    date: "30 Jul",
-    amount: "-$920",
-    icon: CreditCard,
-    color: "text-red-400",
-  },
-  {
-    title: "Investment Return",
-    date: "29 Jul",
-    amount: "+$425",
-    icon: ArrowUpRight,
-    color: "text-green-400",
-  },
-];
+const getIcon = (category) => {
+  switch (category) {
+    case "Food":
+      return Coffee;
+    case "Fuel":
+      return Fuel;
+    case "Entertainment":
+      return Tv;
+    case "Rent":
+      return Home;
+    case "Salary":
+      return ArrowDownLeft;
+    default:
+      return ShoppingBag;
+  }
+};
 
 export default function RecentTransactions() {
+  const [transactions, setTransactions] = useState([]);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/transactions`)
+      .then((res) => res.json())
+      .then((data) => {
+        const latest = data
+          .sort(
+            (a, b) =>
+              new Date(b.transaction_date) -
+              new Date(a.transaction_date)
+          )
+          .slice(0, 10);
+
+        setTransactions(latest);
+      });
+  }, []);
+
   return (
     <div className="mt-10 rounded-2xl bg-slate-900 border border-slate-800 p-6">
       <h2 className="text-2xl font-bold mb-6">
@@ -52,12 +54,12 @@ export default function RecentTransactions() {
       </h2>
 
       <div className="space-y-5">
-        {transactions.map((item, index) => {
-          const Icon = item.icon;
+        {transactions.map((item) => {
+          const Icon = getIcon(item.category);
 
           return (
             <div
-              key={index}
+              key={item.transaction_id}
               className="flex items-center justify-between border-b border-slate-800 pb-4"
             >
               <div className="flex items-center gap-4">
@@ -67,17 +69,24 @@ export default function RecentTransactions() {
 
                 <div>
                   <p className="font-semibold">
-                    {item.title}
+                    {item.merchant_name}
                   </p>
 
                   <p className="text-slate-400 text-sm">
-                    {item.date}
+                    {item.transaction_date}
                   </p>
                 </div>
               </div>
 
-              <span className={`font-bold ${item.color}`}>
-                {item.amount}
+              <span
+                className={`font-bold ${
+                  item.transaction_type === "Credit"
+                    ? "text-green-400"
+                    : "text-red-400"
+                }`}
+              >
+                {item.transaction_type === "Credit" ? "+" : "-"}$
+                {Number(item.amount).toFixed(2)}
               </span>
             </div>
           );

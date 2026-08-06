@@ -1,1 +1,1 @@
-export const API_BASE = "http://35.200.143.72:8000";
+export const API_BASE = `${window.location.protocol}//${window.location.hostname}:8000`;

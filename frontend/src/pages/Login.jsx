@@ -4,10 +4,11 @@ export default function Login() {
   const navigate = useNavigate();
 
   const handleLogin = (e) => {
-    e.preventDefault();
+	  e.preventDefault();
 
-    // Temporary login
-    navigate("/dashboard");
+	  localStorage.setItem("isLoggedIn", "true");
+
+	  navigate("/dashboard");
   };
 
   return (

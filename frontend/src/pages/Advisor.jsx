@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { API_BASE } from "../config";
 import ReactMarkdown from "react-markdown";
-
+import { useNavigate } from "react-router-dom";
 export default function Advisor() {
+  const navigate = useNavigate();
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(false);
@@ -43,6 +44,16 @@ export default function Advisor() {
   }
 
   return (
+	  <>
+	  <div className="mb-6">
+	  <button
+	  onClick={() => navigate("/dashboard")}
+	  className="rounded-xl bg-gradient-to-r from-red-600 to-red-500 px-5 py-2 font-semibold text-white shadow-lg shadow-red-500/40 hover:from-red-700 hover:to-red-600 transition-all duration-300"
+	  >
+	  ← Back to Dashboard
+	  </button>
+	  </div>
+
     <div
       style={{
         minHeight: "100vh",
@@ -180,5 +191,6 @@ export default function Advisor() {
         </div>
       </div>
     </div>
+    </>
   );
 }

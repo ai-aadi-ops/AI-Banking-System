@@ -22,6 +22,7 @@ from app.models import (
     Transaction,
     Recommendation,
     Loan,
+    User,
 )
 
 app = FastAPI(title="AI Banking Demo")

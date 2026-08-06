@@ -12,7 +12,7 @@ google-api-core==2.33.0
 google-api-python-client==2.198.0
 google-auth==2.56.2
 google-auth-httplib2==0.4.0
-google-generativeai==0.8.6
+google-genai
 googleapis-common-protos==1.75.0
 greenlet==3.5.4
 grpcio==1.83.0
@@ -39,3 +39,7 @@ typing_extensions==4.16.0
 uritemplate==4.2.0
 urllib3==2.7.0
 uvicorn==0.52.0
+passlib[bcrypt]
+python-jose[cryptography]
+python-multipart
+email-validator

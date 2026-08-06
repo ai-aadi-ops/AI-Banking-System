@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: backend
+
+spec:
+  replicas: 2
+
+  selector:
+    matchLabels:
+      app: backend
+
+  template:
+    metadata:
+      labels:
+        app: backend
+
+    spec:
+            containers:
+            - name: backend
+              image: ai-banking-system-backend:latest
+              imagePullPolicy: Never
+
+              envFrom:
+              - secretRef:
+                  name: ai-banking-secret
+
+              ports:
+              - containerPort: 8000
