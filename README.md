@@ -538,11 +538,11 @@ DevOps Engineer • AI Enthusiast • Cloud Engineer
 
 🔗 LinkedIn
 
-https://linkedin.com/in/aaditya-ops
+www.linkedin.com/posts/aaditya-ops_ai-artificialintelligence-generativeai-ugcPost-7491110214000111616-k5eH
 
 🔗 GitHub
 
-https://github.com/ai-aadi-ops
+www.github.com/ai-aadi-ops
 
 ---
 
