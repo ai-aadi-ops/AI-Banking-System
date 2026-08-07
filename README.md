@@ -536,11 +536,15 @@ DevOps Engineer • AI Enthusiast • Cloud Engineer
 
 📧 aadityaacharya2109@gmail.com
 
-🔗 LinkedIn
+🔗 LinkedIn Demonstration
 
 www.linkedin.com/posts/aaditya-ops_ai-artificialintelligence-generativeai-ugcPost-7491110214000111616-k5eH
 
-🔗 GitHub
+🔗 LinkdIn Portifolio
+
+www.linkedin.com/in/aaditya-ops/
+
+🔗 GitHub Portifolio
 
 www.github.com/ai-aadi-ops
 
