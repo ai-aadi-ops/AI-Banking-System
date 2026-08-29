@@ -27,10 +27,6 @@ The dashboard provides an overview of:
 - AI Financial Health Score
 - Financial Insights
 
-<p align="center">
-  <img src="Screenshots/DASHBOARD.png" alt="Dashboard" width="900">
-</p>
-
 ---
 
 ## 📊 Spending Analytics
@@ -69,9 +65,7 @@ The AI engine analyzes spending behavior to identify:
 - Customer Spending Habits
 - Expense Distribution
 
-<p align="center">
-  <img src="Screenshots/AI-SPENDING-ANALYSIS.png" alt="AI Spending Analysis" width="900">
-</p>
+
 
 ---
 
@@ -112,9 +106,6 @@ Examples include:
 
 Dedicated AI Advisor that helps customers make smarter financial decisions through intelligent recommendations.
 
-<p align="center">
-  <img src="Screenshots/AI-ADVISOR.png" alt="AI Advisor" width="900">
-</p>
 
 ---
 
@@ -417,20 +408,24 @@ Produces
 
 ## Dashboard
 
-> Add Screenshot Here
+<p align="center">
+  <img src="Screenshots/DASHBOARD.png" alt="Dashboard" width="900">
+</p>
 
 ---
 
 ## Spending Analytics
 
-> Add Screenshot Here
-
+<p align="center">
+  <img src="Screenshots/AI-SPENDING-ANALYSIS.png" alt="AI Spending Analysis" width="900">
+</p>
 ---
 
 ## AI Recommendations
 
-> Add Screenshot Here
-
+<p align="center">
+  <img src="Screenshots/AI-ADVISOR.png" alt="AI Advisor" width="900">
+</p>
 ---
 
 ## Swagger APIs
