@@ -430,8 +430,9 @@ Produces
 
 ## Swagger APIs
 
-> Add Screenshot Here
-
+<p align="center">
+  <img src="Screenshots/SWAGGER.png" alt="SWAGGER" width="900">
+</p>
 ---
 
 # 🚀 Installation
