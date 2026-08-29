@@ -6,6 +6,8 @@ from app.ai.recommendation_engine import generate_recommendation
 from app.ai.spending_analyzer import analyze_transactions
 from app.ai.financial_health import calculate_financial_health
 from app.ai.purchase_decision import purchase_decision
+from app.ai.offer_engine import build_offer
+from app.services.purchase_service import PurchaseService
 from app.services.purchase_service import PurchaseService
 from app.ai.financial_advisor import generate_financial_advice
 from app.ai.chat_service import chat_with_ai
@@ -15,6 +17,8 @@ from sqlalchemy import func
 from app.models import Account, Transaction
 from fastapi.middleware.cors import CORSMiddleware
 from app.ai.recommendation_engine import generate_recommendation
+from fastapi import Body
+from app.ai.offer_engine import build_offer
 from app.models import (
     Customer,
     Account,
@@ -304,8 +308,8 @@ def ai_chat(
         account,
         transactions,
     )
-
-    answer = chat_with_ai(
+    
+    offer = build_offer(
         customer,
         account,
         spending,
@@ -313,10 +317,25 @@ def ai_chat(
         body["question"],
     )
 
+    answer = chat_with_ai(
+        customer,
+        account,
+        spending,
+        health,
+        body["question"],
+        offer,
+    )
+
+
     return {
         "customer": customer.full_name,
         "question": body["question"],
         "answer": answer,
+        "account": {
+            "balance": float(account.balance),
+            "status": account.status,
+        },
+        "offer": offer,
     }
 @app.get("/dashboard")
 def get_dashboard(db: Session = Depends(get_db)):
@@ -393,4 +412,28 @@ def spending_chart(db: Session = Depends(get_db)):
     return [
         {"month": k, "expense": v}
         for k, v in months.items()
-    ]
+        ]
+
+
+@app.post("/demo/reset/{customer_id}")
+def reset_demo_account(customer_id: int, db: Session = Depends(get_db)):
+    service = PurchaseService(db)
+    return service.reset_demo_account(customer_id)
+
+
+@app.post("/offers/accept")
+def accept_offer(body: dict, db: Session = Depends(get_db)):
+    customer_id = body["customer_id"]
+    offer = body["offer"]
+
+    account = db.query(Account).filter(
+        Account.customer_id == customer_id
+    ).first()
+
+    service = PurchaseService(db)
+
+    return service.execute_purchase(
+        customer_id=customer_id,
+        offer=offer,
+        account=account,
+    )

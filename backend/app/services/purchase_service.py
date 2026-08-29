@@ -66,38 +66,106 @@ class PurchaseService:
         )
 
         return account
+    def execute_purchase(self, customer_id: int, offer: dict, account: Account):
+        amount = float(offer["amount"])
+        current_balance = float(account.balance)
 
-    def execute_purchase(
-        self,
-        customer_id: int,
-        recommendation: dict,
-        decision: dict,
-        account: Account,
-    ):
-
-        if decision["decision"] != "APPROVED":
-            return {
-                "status": "DECLINED"
+        if offer["type"] != "loan" and amount > current_balance:
+            loan_offer = {
+                "type": "loan",
+                "title": "Instant Personal Loan Offer",
+                "product": "Pre-approved Personal Loan",
+                "merchant": "AI Banking Credit Desk",
+                "amount": 15000.00,
+                "monthly_emi": 1381.25,
+                "tenure_months": 12,
+                "interest_rate": 10.5,
+                "discount_percent": 0,
+                "reason": f"Your balance is ${current_balance:,.2f}, so this purchase cannot continue. AI recommends a loan offer instead.",
+                "cta": "Accept Loan Offer",
             }
 
-        self.save_recommendation(
-            customer_id,
-            recommendation
-        )
+            return {
+                "status": "LOAN_RECOMMENDED",
+                "message": "Insufficient balance. Loan offer recommended.",
+                "balance": current_balance,
+                "offer": loan_offer,
+            }
 
-        self.create_loan(
-            customer_id,
-            recommendation
-        )
-
-        self.update_account(
-            account,
-            recommendation
-        )
+        if offer["type"] == "loan":
+            account.balance = current_balance + amount
+            message = "Loan credited successfully."
+        else:
+            account.balance = current_balance - amount
+            message = "Purchase completed successfully."
 
         self.db.commit()
 
         return {
             "status": "SUCCESS",
-            "message": "Purchase completed successfully"
+            "message": message,
+            "offer_type": offer["type"],
+            "amount": amount,
+            "balance": float(account.balance),
+            "redirect_url": f"/offers?status=confirmed&type={offer['type']}&amount={amount}&balance={float(account.balance)}",
+        }
+
+    def reset_demo_account(self, customer_id: int):
+        account = self.db.query(Account).filter(
+            Account.customer_id == customer_id
+        ).first()
+
+        if not account:
+            return {"error": "Account not found"}
+
+        account.balance = 20000.00
+        self.db.commit()
+
+        return {
+            "status": "RESET",
+            "customer_id": customer_id,
+            "balance": float(account.balance),
+        }
+    def execute_purchase(self, customer_id: int, offer: dict, account: Account):
+        amount = float(offer["amount"])
+        current_balance = float(account.balance)
+
+        if offer["type"] != "loan" and amount > current_balance:
+            loan_offer = {
+                "type": "loan",
+                "title": "Instant Personal Loan Offer",
+                "product": "Pre-approved Personal Loan",
+                "merchant": "AI Banking Credit Desk",
+                "amount": 15000.00,
+                "monthly_emi": 1381.25,
+                "tenure_months": 12,
+                "interest_rate": 10.5,
+                "discount_percent": 0,
+                "reason": f"Your balance is ${current_balance:,.2f}, so this purchase cannot continue. AI recommends a loan offer instead.",
+                "cta": "Accept Loan Offer",
+            }
+
+            return {
+                "status": "LOAN_RECOMMENDED",
+                "message": "Insufficient balance. Loan offer recommended.",
+                "balance": current_balance,
+                "offer": loan_offer,
+            }
+
+        if offer["type"] == "loan":
+            account.balance = current_balance + amount
+            message = "Loan credited successfully."
+        else:
+            account.balance = current_balance - amount
+            message = "Purchase completed successfully."
+
+        self.db.commit()
+
+        return {
+            "status": "SUCCESS",
+            "message": message,
+            "offer_type": offer["type"],
+            "amount": amount,
+            "balance": float(account.balance),
+            "redirect_url": f"/offers?status=confirmed&type={offer['type']}&amount={amount}&balance={float(account.balance)}",
         }

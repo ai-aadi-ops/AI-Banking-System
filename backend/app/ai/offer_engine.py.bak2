@@ -1,0 +1,107 @@
+import re
+
+
+DEMO_BASE_BALANCE = 20000.00
+LOW_BALANCE_THRESHOLD = 2500.00
+
+
+def extract_purchase_amount(question: str):
+    """
+    Extract a dollar purchase amount from a natural-language question.
+
+    Examples:
+    - Can I buy a laptop worth $25,000 this month?
+    - Can I afford an iPhone for $8,000?
+    - Can I purchase a car worth 30000?
+    """
+    if not question:
+        return None
+
+    match = re.search(
+        r"\$\s*([0-9][0-9,]*(?:\.[0-9]+)?)",
+        question
+    )
+
+    if not match:
+        return None
+
+    amount_text = match.group(1).replace(",", "")
+
+    try:
+        return float(amount_text)
+    except ValueError:
+        return None
+
+
+def build_loan_offer(balance, amount):
+    shortfall = max(0.0, amount - balance)
+
+    loan_amount = max(15000.00, shortfall)
+
+    return {
+        "type": "loan",
+        "title": "Instant Personal Loan Offer",
+        "product": "Pre-approved Personal Loan",
+        "merchant": "AI Banking Credit Desk",
+        "amount": loan_amount,
+        "monthly_emi": 1381.25,
+        "tenure_months": 12,
+        "interest_rate": 10.5,
+        "discount_percent": 0,
+        "reason": (
+            f"Your balance is ${balance:,.2f}, but the requested "
+            f"purchase is ${amount:,.2f}. AI recommends a loan offer "
+            f"to cover the funding gap."
+        ),
+        "cta": "Accept Loan Offer",
+    }
+
+
+def build_offer(customer, account, spending, health, question):
+    balance = float(account.balance)
+
+    purchase_amount = extract_purchase_amount(question)
+
+    # If the user explicitly asks about a purchase that exceeds
+    # the available account balance, recommend a loan.
+    if purchase_amount is not None and purchase_amount > balance:
+        return build_loan_offer(balance, purchase_amount)
+
+    # Existing low-balance safety rule.
+    if balance <= LOW_BALANCE_THRESHOLD:
+        return {
+            "type": "loan",
+            "title": "Instant Personal Loan Offer",
+            "product": "Pre-approved Personal Loan",
+            "merchant": "AI Banking Credit Desk",
+            "amount": 15000.00,
+            "monthly_emi": 1381.25,
+            "tenure_months": 12,
+            "interest_rate": 10.5,
+            "discount_percent": 0,
+            "reason": (
+                f"Your balance is ${balance:,.2f}, "
+                "so AI recommends a loan offer."
+            ),
+            "cta": "Accept Loan Offer",
+        }
+
+    # Existing demo purchase offer for normal/general advisor questions.
+    return {
+        "type": "purchase",
+        "title": "iPhone Upgrade Offer",
+        "product": "iPhone 15 Pro Max Family Bundle",
+        "merchant": "Apple Demo Store",
+        "original_price": 9500.00,
+        "discounted_price": 7790.00,
+        "amount": 7790.00,
+        "monthly_emi": 1298.33,
+        "tenure_months": 6,
+        "interest_rate": 0,
+        "discount_percent": 18,
+        "reason": (
+            f"Your balance is ${balance:,.2f}. "
+            "AI found an 18% discount offer."
+        ),
+        "cta": "Accept Discount Offer",
+    }
