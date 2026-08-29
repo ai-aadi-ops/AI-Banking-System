@@ -550,6 +550,60 @@ www.github.com/ai-aadi-ops
 
 ---
 
+# AI Banking System
+
+An AI-powered banking platform that combines financial analytics, an AI financial advisor, personalized purchase recommendations, and intelligent loan recommendations.
+
+The application is designed as a demo banking platform where customers can analyze their financial health, ask natural-language financial questions, evaluate purchase affordability, receive personalized offers, and get financing recommendations when their available balance is insufficient.
+
+---
+
+## 🚀 Key Features
+
+### 1. AI Financial Advisor
+
+The AI Advisor allows customers to interact with their banking data using natural language.
+
+It analyzes:
+
+- Current account balance
+- Savings
+- Annual salary
+- Transaction history
+- Spending categories
+- Financial health score
+- Overall financial status
+
+Example:
+
+> Can I buy a laptop worth $25,000 this month?
+
+The AI evaluates the customer's financial position and provides a practical recommendation.
+
+---
+
+### 2. Intelligent Purchase Affordability
+
+The system evaluates whether a customer can afford a requested purchase based on their available account balance.
+
+```text
+Customer Purchase Request
+          |
+          v
+Extract Purchase Amount
+          |
+          v
+Compare With Available Balance
+          |
+     +----+----+
+     |         |
+     v         v
+ Affordable   Insufficient Balance
+     |         |
+     v         v
+Purchase      Loan Recommendation
+Offer
+
 <div align="center">
 
 ## ⭐ If you found this project useful...
