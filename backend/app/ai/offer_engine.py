@@ -186,23 +186,69 @@ def build_default_offer(balance):
         "cta": "Accept Discount Offer",
     }
 
-
 def build_offer(customer, account, spending, health, question):
     balance = float(account.balance)
 
+    question_lower = (question or "").lower()
+
+    purchase_keywords = [
+        "buy",
+        "purchase",
+        "afford",
+        "spend",
+        "laptop",
+        "iphone",
+        "ipad",
+        "phone",
+        "smartphone",
+        "mobile",
+        "car",
+        "vehicle",
+        "suv",
+        "bike",
+        "motorcycle",
+        "scooter",
+        "tv",
+        "television",
+        "computer",
+        "macbook",
+    ]
+
+    loan_keywords = [
+        "loan",
+        "borrow",
+        "financing",
+        "finance",
+        "emi",
+        "installment",
+    ]
+
+    has_purchase_intent = any(
+        keyword in question_lower
+        for keyword in purchase_keywords
+    )
+
+    has_loan_intent = any(
+        keyword in question_lower
+        for keyword in loan_keywords
+    )
+
+    # No financial product/purchase intent.
+    # Do not show any offer card.
+    if not has_purchase_intent and not has_loan_intent:
+        return None
+
     purchase_amount, product, merchant = extract_purchase_details(question)
 
-    # Explicit purchase amount was provided.
+    # Explicit purchase amount
     if purchase_amount is not None:
 
-        # Requested purchase is unaffordable.
         if purchase_amount > balance:
             return build_loan_offer(
                 balance,
                 purchase_amount
             )
 
-        # Requested purchase is affordable.
         return build_purchase_offer(
             balance,
             purchase_amount,
@@ -210,7 +256,14 @@ def build_offer(customer, account, spending, health, question):
             merchant
         )
 
-    # Existing low-balance safety rule.
+    # Explicit loan-related question
+    if has_loan_intent:
+        return build_loan_offer(
+            balance,
+            15000.00
+        )
+
+    # Low balance + purchase/product question
     if balance <= LOW_BALANCE_THRESHOLD:
         return {
             "type": "loan",
@@ -229,5 +282,5 @@ def build_offer(customer, account, spending, health, question):
             "cta": "Accept Loan Offer",
         }
 
-    # No explicit purchase amount.
+    # Product question without explicit amount
     return build_default_offer(balance)
