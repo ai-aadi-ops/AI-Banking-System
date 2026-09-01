@@ -179,11 +179,11 @@ Built with ❤️ using React, FastAPI, PostgreSQL, Docker & Google Cloud Platfo
 
 🖥️ **Frontend**
 
-http://35.200.182.160:5173
+http://34.47.242.18:5173/
 
 📄 **Swagger**
 
-http://35.200.182.160:8000/docs
+http://34.47.242.18:8000/docs
 
 📂 **GitHub**
 
