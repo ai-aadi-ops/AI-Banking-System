@@ -29,7 +29,12 @@ from app.models import (
     User,
 )
 
-app = FastAPI(title="AI Banking Demo")
+app = FastAPI(
+    title="AI Banking Demo",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json"
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
