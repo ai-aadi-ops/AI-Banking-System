@@ -70,15 +70,19 @@ export default function AIRecommendation() {
           AI Advice
         </h3>
 
-        <ul className="space-y-2">
+    <ul className="space-y-2">
+      {(health.advice || []).map((item, index) => (
+        <li key={index} className="text-slate-100">
+          ✔ {item}
+        </li>
+      ))}
 
-          {health.advice.map((item, index) => (
-            <li key={index} className="text-slate-100">
-              ✔ {item}
-            </li>
-          ))}
-
-        </ul>
+      {(!health.advice || health.advice.length === 0) && (
+        <li className="text-slate-200">
+          No AI advice available yet.
+        </li>
+      )}
+    </ul>
 
       </div>
 
