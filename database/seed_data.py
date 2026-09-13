@@ -1,6 +1,16 @@
 import random
 import uuid
 import psycopg2
+import os
+
+def get_connection():
+    database_url = os.getenv("DATABASE_URL")
+
+    if not database_url:
+        raise RuntimeError("DATABASE_URL environment variable is not set")
+
+    return psycopg2.connect(database_url)
+
 CITIES = [
     "Noida",
     "Gurugram",
@@ -167,3 +177,27 @@ while current_date <= END_DATE:
     current_date += timedelta(days=1)
 
 print(f"\nGenerated {len(all_transactions)} transactions.")
+
+conn = None
+
+try:
+    conn = get_connection()
+    cur = conn.cursor()
+
+    for txn in all_transactions:
+        insert_transaction(cur, txn)
+
+    conn.commit()
+
+    print(f"Inserted {len(all_transactions)} transactions into PostgreSQL.")
+
+except Exception as e:
+    if conn:
+        conn.rollback()
+
+    print("Database error:", e)
+    raise
+
+finally:
+    if conn:
+        conn.close()
