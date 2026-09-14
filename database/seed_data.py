@@ -5,11 +5,16 @@ import os
 
 def get_connection():
     database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        return psycopg2.connect(database_url)
 
-    if not database_url:
-        raise RuntimeError("DATABASE_URL environment variable is not set")
-
-    return psycopg2.connect(database_url)
+    return psycopg2.connect(
+        host=os.getenv("DB_HOST", "localhost"),
+        port=int(os.getenv("DB_PORT", "5432")),
+        database=os.getenv("DB_NAME", "banking_ai"),
+        user=os.getenv("DB_USER", "postgres"),
+        password=os.getenv("DB_PASSWORD", "Robert@123")
+    )
 
 CITIES = [
     "Noida",
@@ -91,16 +96,6 @@ def generate_transactions(current_date):
     
     return transactions
 
-def get_connection():
-
-    return psycopg2.connect(
-        host="localhost",
-        port=5432,
-        database="banking_ai",
-        user="postgres",
-        password="Robert@123"
-    )
-
 def insert_transaction(cur, txn):
 
     cur.execute(
@@ -178,26 +173,46 @@ while current_date <= END_DATE:
 
 print(f"\nGenerated {len(all_transactions)} transactions.")
 
-conn = None
+if __name__ == "__main__":
+    conn = None
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
 
-try:
-    conn = get_connection()
-    cur = conn.cursor()
+        # 1. Ensure Customer 1 exists
+        cur.execute("""
+            INSERT INTO customers (customer_id, customer_code, full_name, email, phone, salary, customer_since, kyc_status)
+            VALUES (1, 'CUST001', 'Robert Wilson', 'robert.wilson@demo.com', '+1-555-0199', 6500.00, '2023-01-15', 'VERIFIED')
+            ON CONFLICT (customer_id) DO NOTHING;
+        """)
 
-    for txn in all_transactions:
-        insert_transaction(cur, txn)
+        # 2. Ensure Account 1 exists
+        cur.execute("""
+            INSERT INTO accounts (account_id, customer_id, account_number, account_type, balance, savings, monthly_salary, status)
+            VALUES (1, 1, 'ACC-98234101', 'Savings', 20000.00, 5000.00, 6500.00, 'ACTIVE')
+            ON CONFLICT (account_id) DO NOTHING;
+        """)
 
-    conn.commit()
+        # 3. Ensure Card 1 exists
+        cur.execute("""
+            INSERT INTO cards (card_id, customer_id, card_number, expiry_date, cvv, card_type, status)
+            VALUES (1, 1, '4532-8821-9934-1209', '12/28', '342', 'Visa Platinum', 'ACTIVE')
+            ON CONFLICT (card_id) DO NOTHING;
+        """)
 
-    print(f"Inserted {len(all_transactions)} transactions into PostgreSQL.")
+        # 4. Clean old transactions and insert new ones
+        cur.execute("DELETE FROM bank_transactions WHERE customer_id = 1;")
+        for txn in all_transactions:
+            insert_transaction(cur, txn)
 
-except Exception as e:
-    if conn:
-        conn.rollback()
+        conn.commit()
+        print(f"Inserted {len(all_transactions)} transactions into PostgreSQL.")
 
-    print("Database error:", e)
-    raise
-
-finally:
-    if conn:
-        conn.close()
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        print("Database error:", e)
+        raise
+    finally:
+        if conn:
+            conn.close()

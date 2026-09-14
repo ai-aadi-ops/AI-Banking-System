@@ -46,12 +46,25 @@ app.add_middleware(
 @app.on_event("startup")
 def startup():
     Base.metadata.create_all(bind=engine)
+    try:
+        from app.database import SessionLocal
+        from app.seeder import seed_database_if_empty
+        with SessionLocal() as db:
+            seed_database_if_empty(db)
+    except Exception as e:
+        print(f"Startup seeding error: {e}")
 
 @app.get("/")
 def home():
     return {
         "message": "AI Banking Backend Running"
     }
+
+@app.get("/seed")
+@app.post("/seed")
+def trigger_seed(force: bool = False, db: Session = Depends(get_db)):
+    from app.seeder import seed_database
+    return seed_database(db, force=force)
 
 
 @app.get("/customers")
@@ -116,6 +129,13 @@ def financial_health(customer_id: int,
         .filter(Transaction.customer_id == customer_id)
         .all()
     )
+
+    if not customer or not account:
+        from app.seeder import seed_database
+        seed_database(db, force=False)
+        customer = db.query(Customer).filter(Customer.customer_id == customer_id).first()
+        account = db.query(Account).filter(Account.customer_id == customer_id).first()
+        transactions = db.query(Transaction).filter(Transaction.customer_id == customer_id).all()
 
     if not customer or not account:
         return {"error": "Customer not found"}
@@ -286,7 +306,7 @@ def ai_chat(
     body: dict,
     db: Session = Depends(get_db)
 ):
-    customer_id = body["customer_id"]
+    customer_id = body.get("customer_id", 1)
 
     customer = (
         db.query(Customer)
@@ -299,6 +319,24 @@ def ai_chat(
         .filter(Account.customer_id == customer_id)
         .first()
     )
+
+    if not customer or not account:
+        from app.seeder import seed_database
+        seed_database(db, force=False)
+        customer = db.query(Customer).filter(Customer.customer_id == customer_id).first()
+        account = db.query(Account).filter(Account.customer_id == customer_id).first()
+
+    if not customer or not account:
+        return {
+            "customer": "Robert Wilson",
+            "question": body.get("question", ""),
+            "answer": "Unable to load customer account. Demo data is initializing, please try again in a moment.",
+            "account": {
+                "balance": 20000.0,
+                "status": "ACTIVE",
+            },
+            "offer": None,
+        }
 
     transactions = (
         db.query(Transaction)
@@ -314,12 +352,13 @@ def ai_chat(
         transactions,
     )
     
+    question = body.get("question", "")
     offer = build_offer(
         customer,
         account,
         spending,
         health,
-        body["question"],
+        question,
     )
 
     answer = chat_with_ai(
@@ -327,14 +366,14 @@ def ai_chat(
         account,
         spending,
         health,
-        body["question"],
+        question,
         offer,
     )
 
 
     return {
         "customer": customer.full_name,
-        "question": body["question"],
+        "question": question,
         "answer": answer,
         "account": {
             "balance": float(account.balance),
@@ -346,8 +385,15 @@ def ai_chat(
 def get_dashboard(db: Session = Depends(get_db)):
 
     account = db.query(Account).first()
+    customer = db.query(Customer).first()
 
-    if not account:
+    if not account or not customer:
+        from app.seeder import seed_database
+        seed_database(db, force=False)
+        account = db.query(Account).first()
+        customer = db.query(Customer).first()
+
+    if not account or not customer:
         return {
             "balance": 0,
             "income": 0,
@@ -364,10 +410,12 @@ def get_dashboard(db: Session = Depends(get_db)):
         .scalar()
     ) or 0
 
+    transactions = db.query(Transaction).all()
+
     health = calculate_financial_health(
-        db.query(Customer).first(),
+        customer,
         account,
-        db.query(Transaction).all()
+        transactions
     )
 
     return {
@@ -422,6 +470,12 @@ def spending_chart(db: Session = Depends(get_db)):
 
 @app.post("/demo/reset/{customer_id}")
 def reset_demo_account(customer_id: int, db: Session = Depends(get_db)):
+    account = db.query(Account).filter(
+        Account.customer_id == customer_id
+    ).first()
+    if not account:
+        from app.seeder import seed_database
+        seed_database(db, force=False)
     service = PurchaseService(db)
     return service.reset_demo_account(customer_id)
 
