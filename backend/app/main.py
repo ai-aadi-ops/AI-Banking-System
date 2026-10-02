@@ -104,10 +104,10 @@ def ensure_schema_columns(db: Session):
             ("users", "currency_code", "VARCHAR(10) DEFAULT 'INR'"),
             ("users", "currency_symbol", "VARCHAR(10) DEFAULT '₹'"),
             ("users", "is_active", "VARCHAR(10) DEFAULT 'true'"),
-            ("accounts", "currency_symbol", "VARCHAR(10) DEFAULT '₹'"),
-            ("customers", "country", "VARCHAR(50) DEFAULT 'India'"),
-            ("customers", "currency_code", "VARCHAR(10) DEFAULT 'INR'"),
-            ("customers", "currency_symbol", "VARCHAR(10) DEFAULT '₹'"),
+            ("accounts", "currency_symbol", "VARCHAR(10) DEFAULT '$'"),
+            ("customers", "country", "VARCHAR(50) DEFAULT 'United States'"),
+            ("customers", "currency_code", "VARCHAR(10) DEFAULT 'USD'"),
+            ("customers", "currency_symbol", "VARCHAR(10) DEFAULT '$'"),
         ]
 
         is_sqlite = db.bind.dialect.name == "sqlite"
@@ -1076,7 +1076,10 @@ def get_dashboard(customer_id: int = 1, db: Session = Depends(get_db)):
         transactions
     )
 
-    currency_sym = getattr(account, "currency_symbol", None) or (user.currency_symbol if user else "$") or "$"
+    if customer_id == 1:
+        currency_sym = "$"
+    else:
+        currency_sym = getattr(customer, "currency_symbol", None) or getattr(account, "currency_symbol", None) or (user.currency_symbol if user else "₹") or "₹"
 
     return {
         "customer_name": customer.full_name,
