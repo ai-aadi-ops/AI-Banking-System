@@ -445,8 +445,13 @@ async def upload_statement(
     # 1. Update or create Account
     account = db.query(Account).filter(Account.customer_id == customer_id).first()
     if not account:
+        max_acc = db.query(func.max(Account.account_id)).scalar() or 0
+        cand_acc_id = max(max_acc + 1, customer_id)
+        while db.query(Account).filter(Account.account_id == cand_acc_id).first():
+            cand_acc_id += 1
+
         account = Account(
-            account_id=customer_id,
+            account_id=cand_acc_id,
             customer_id=customer_id,
             account_number=f"ACC-{customer_id:04d}8901",
             account_type="Savings",
@@ -478,10 +483,28 @@ async def upload_statement(
         user.currency_symbol = data["currency_symbol"]
         user.country = country
 
-    # 4. Remove previous statement transactions for this customer
+    # 4. Ensure Card exists
+    card = db.query(Card).filter(Card.customer_id == customer_id).first()
+    if not card:
+        max_card = db.query(func.max(Card.card_id)).scalar() or 0
+        cand_card_id = max(max_card + 1, customer_id)
+        while db.query(Card).filter(Card.card_id == cand_card_id).first():
+            cand_card_id += 1
+        card = Card(
+            card_id=cand_card_id,
+            customer_id=customer_id,
+            card_number=f"4532-{random.randint(1000, 9999)}-{random.randint(1000, 9999)}-{random.randint(1000, 9999)}",
+            expiry_date="12/29",
+            cvv=str(random.randint(100, 999)),
+            card_type="Visa Platinum",
+            status="ACTIVE"
+        )
+        db.add(card)
+
+    # 5. Remove previous statement transactions for this customer
     db.query(Transaction).filter(Transaction.customer_id == customer_id).delete()
 
-    # 5. Insert newly extracted transactions
+    # 6. Insert newly extracted transactions
     for t in data["transactions"]:
         d_val = t.get("transaction_date")
         if isinstance(d_val, str):
@@ -505,6 +528,8 @@ async def upload_statement(
         db.add(new_txn)
 
     db.commit()
+    from app.seeder import reset_postgres_sequences
+    reset_postgres_sequences(db)
 
     return {
         "status": "success",
@@ -536,8 +561,13 @@ def load_sample(
 
     account = db.query(Account).filter(Account.customer_id == customer_id).first()
     if not account:
+        max_acc = db.query(func.max(Account.account_id)).scalar() or 0
+        cand_acc_id = max(max_acc + 1, customer_id)
+        while db.query(Account).filter(Account.account_id == cand_acc_id).first():
+            cand_acc_id += 1
+
         account = Account(
-            account_id=customer_id,
+            account_id=cand_acc_id,
             customer_id=customer_id,
             account_number=f"ACC-{customer_id:04d}8901",
             account_type="Savings",
@@ -567,6 +597,23 @@ def load_sample(
         user.currency_symbol = data["currency_symbol"]
         user.country = country
 
+    card = db.query(Card).filter(Card.customer_id == customer_id).first()
+    if not card:
+        max_card = db.query(func.max(Card.card_id)).scalar() or 0
+        cand_card_id = max(max_card + 1, customer_id)
+        while db.query(Card).filter(Card.card_id == cand_card_id).first():
+            cand_card_id += 1
+        card = Card(
+            card_id=cand_card_id,
+            customer_id=customer_id,
+            card_number=f"4532-{random.randint(1000, 9999)}-{random.randint(1000, 9999)}-{random.randint(1000, 9999)}",
+            expiry_date="12/29",
+            cvv=str(random.randint(100, 999)),
+            card_type="Visa Platinum",
+            status="ACTIVE"
+        )
+        db.add(card)
+
     db.query(Transaction).filter(Transaction.customer_id == customer_id).delete()
 
     for t in data["transactions"]:
@@ -590,6 +637,8 @@ def load_sample(
         db.add(new_txn)
 
     db.commit()
+    from app.seeder import reset_postgres_sequences
+    reset_postgres_sequences(db)
 
     return {
         "status": "success",
@@ -1062,13 +1111,16 @@ def get_dashboard(customer_id: int = 1, db: Session = Depends(get_db)):
             }
         }
 
-    expenses = (
-        db.query(func.sum(Transaction.amount))
-        .filter(Transaction.customer_id == customer_id, Transaction.transaction_type == "Debit")
-        .scalar()
-    ) or 0.0
-
     transactions = db.query(Transaction).filter(Transaction.customer_id == customer_id).all()
+    total_debits = sum(float(t.amount) for t in transactions if t.transaction_type == "Debit")
+
+    num_months = 1
+    dates_found = [t.transaction_date for t in transactions if t.transaction_date]
+    if dates_found:
+        span_days = max(1, (max(dates_found) - min(dates_found)).days)
+        num_months = max(1, round(span_days / 30.0))
+
+    monthly_expenses = round(total_debits / num_months, 2) if total_debits > 0 else 0.0
 
     health = calculate_financial_health(
         customer,
@@ -1086,7 +1138,7 @@ def get_dashboard(customer_id: int = 1, db: Session = Depends(get_db)):
         "currency_symbol": currency_sym,
         "balance": float(account.balance),
         "income": float(account.monthly_salary),
-        "expenses": float(expenses),
+        "expenses": float(monthly_expenses),
         "savings": float(account.savings),
 
         "health_score": health["financial_health_score"],
@@ -1095,7 +1147,7 @@ def get_dashboard(customer_id: int = 1, db: Session = Depends(get_db)):
         "insights": {
             "balance": "↑ Strong liquidity position" if float(account.balance) > 0 else "Upload statement to check balance",
             "income": "Stable monthly cash flow" if float(account.monthly_salary) > 0 else "No monthly income recorded",
-            "expenses": "Spending tracked from statement" if float(expenses) > 0 else "No expenses recorded",
+            "expenses": "Spending tracked from statement" if float(monthly_expenses) > 0 else "No expenses recorded",
             "savings": "Healthy emergency fund buffer" if float(account.savings) > 0 else "Start saving to build a buffer"
         }
     }

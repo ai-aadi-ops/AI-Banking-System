@@ -33,3 +33,6 @@ __pycache__/
 frontend/node_modules/
 frontend/dist/
 frontend/minikube-linux-amd64
+
+# Databases
+*.db

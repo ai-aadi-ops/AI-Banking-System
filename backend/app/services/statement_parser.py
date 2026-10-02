@@ -60,27 +60,53 @@ def detect_currency_from_text(text: str, fallback_country: str = "India") -> tup
 def categorize_merchant(merchant: str) -> str:
     """Classify merchant or transaction description into a banking category."""
     m = merchant.lower()
-    if any(k in m for k in ["salary", "payroll", "stipend", "wages", "credit interest"]):
+    if any(k in m for k in ["salary", "payroll", "stipend", "wages", "credit interest", "remittance"]):
         return "Salary"
-    if any(k in m for k in ["swiggy", "zomato", "restaurant", "cafe", "starbucks", "mcdonald", "subway", "coffee", "food", "dining"]):
+    if any(k in m for k in ["swiggy", "zomato", "restaurant", "cafe", "starbucks", "mcdonald", "subway", "coffee", "food", "dining", "pizza", "burger", "kitchen", "dhaba", "sweets", "bakery"]):
         return "Food"
-    if any(k in m for k in ["supermarket", "walmart", "blinkit", "zepto", "dmart", "groceries", "bigbasket", "kirana", "provision"]):
+    if any(k in m for k in ["supermarket", "walmart", "blinkit", "zepto", "dmart", "groceries", "bigbasket", "kirana", "provision", "store", "mart"]):
         return "Groceries"
-    if any(k in m for k in ["electricity", "power", "water", "gas", "bescom", "tneb", "bill", "utility", "broadband", "wifi", "airtel", "jio"]):
+    if any(k in m for k in ["electricity", "power", "water", "gas", "bescom", "tneb", "bill", "utility", "broadband", "wifi", "airtel", "jio", "vi", "bsnl", "recharge"]):
         return "Bills"
-    if any(k in m for k in ["rent", "landlord", "flat", "pg", "society", "maintenance"]):
+    if any(k in m for k in ["rent", "landlord", "flat", "pg", "society", "maintenance", "housing"]):
         return "Rent"
-    if any(k in m for k in ["netflix", "prime", "spotify", "cinema", "movie", "theatre", "entertainment", "hotstar"]):
+    if any(k in m for k in ["netflix", "prime", "spotify", "cinema", "movie", "theatre", "entertainment", "hotstar", "jiosaavn", "youtube", "music", "game"]):
         return "Entertainment"
     if any(k in m for k in ["petrol", "diesel", "fuel", "shell", "hpcl", "bpcl", "ioc", "gas station"]):
         return "Fuel"
-    if any(k in m for k in ["amazon", "flipkart", "myntra", "zara", "clothing", "shopping", "retail", "mall"]):
+    if any(k in m for k in ["amazon", "flipkart", "myntra", "zara", "clothing", "shopping", "retail", "mall", "ajio", "meesho", "nykaa", "fashion"]):
         return "Shopping"
-    if any(k in m for k in ["apple", "croma", "reliance digital", "electronics", "laptop", "mobile", "gadget"]):
+    if any(k in m for k in ["apple", "croma", "reliance", "electronics", "laptop", "mobile", "gadget", "dell", "lenovo"]):
         return "Electronics"
-    if any(k in m for k in ["pharmacy", "hospital", "clinic", "apollo", "medplus", "health", "dental"]):
+    if any(k in m for k in ["pharmacy", "hospital", "clinic", "apollo", "medplus", "health", "dental", "medical", "chemist", "pharma"]):
         return "Health"
     return "Shopping"
+
+
+def clean_merchant_name(desc: str) -> str:
+    """Clean bank transaction narrative into readable merchant name."""
+    clean = ' '.join(desc.split())
+    clean = re.sub(r'^(?:WDL\s+TFR|DEP\s+TFR|NEFT|RTGS|IMPS)\s*', '', clean, flags=re.IGNORECASE)
+
+    upi_m = re.search(r'UPI/(?:DR|CR)/\d+/([^/]+)', clean, flags=re.IGNORECASE)
+    if upi_m:
+        name = upi_m.group(1).strip()
+        if len(name) > 1:
+            return name
+
+    pos_m = re.search(r'POS.*?([A-Za-z][A-Za-z0-9\s]{2,30})', clean, flags=re.IGNORECASE)
+    if pos_m:
+        name = pos_m.group(1).strip()
+        name = re.sub(r'^\d+', '', name).strip()
+        if len(name) > 1:
+            return name
+
+    m_lower = clean.lower()
+    for brand in ["Flipkart", "Amazon", "Swiggy", "Zomato", "Airtel", "JioSaavn", "Netflix", "Blinkit", "Zepto", "Google", "PhonePe", "Paytm", "Uber", "Ola", "Starbucks"]:
+        if brand.lower() in m_lower:
+            return brand
+
+    return clean[:45].strip() or "Bank Transaction"
 
 
 def parse_csv_or_excel(file_bytes: bytes, filename: str, country: str = "India") -> Dict[str, Any]:
@@ -220,38 +246,146 @@ def parse_csv_or_excel(file_bytes: bytes, filename: str, country: str = "India")
     }
 
 
-def parse_pdf_statement(file_bytes: bytes, country: str = "India") -> Dict[str, Any]:
-    """Parse PDF statement using pypdf text extraction or Gemini fallback."""
-    extracted_text = ""
-    try:
-        import pypdf
-        reader = pypdf.PdfReader(io.BytesIO(file_bytes))
-        for page in reader.pages[:10]:
-            t = page.extract_text()
-            if t:
-                extracted_text += t + "\n"
-    except Exception as e:
-        print(f"pypdf extraction error: {e}")
+def parse_sbi_multiline(text: str, country: str = "India") -> Optional[Dict[str, Any]]:
+    """
+    Dedicated high-speed parser for State Bank of India (SBI) and similar
+    multi-line statement formats with two dates (Value Date, Post Date) and
+    tabular amount rows.
+    """
+    blocks = re.split(r'(\d{2}[/-]\d{2}[/-]\d{4}\s+\d{2}[/-]\d{2}[/-]\d{4})', text)
+    if len(blocks) < 3:
+        return None
 
-    if len(extracted_text.strip()) < 100:
-        gemini_result = parse_with_gemini_multimodal(file_bytes, "application/pdf", country)
-        if gemini_result:
-            return gemini_result
-
-    currency_code, currency_symbol = detect_currency_from_text(extracted_text, country)
-
-    transactions = []
-    lines = extracted_text.splitlines()
+    currency_code, currency_symbol = detect_currency_from_text(text, country)
+    txns = []
     total_debits = 0.0
     total_credits = 0.0
-    base_date = date.today()
+    closing_balance = None
+    dates_found = []
+
+    for i in range(1, len(blocks), 2):
+        dates = blocks[i].strip().split()
+        date_str = dates[0]
+        body = blocks[i + 1].strip()
+
+        # Match: Ref/Cheque (optional), Debit, Credit, Balance
+        amt_match = re.search(
+            r'(?:^|\n)\s*(?:[^\n\r]*?)?(-|\d+[\d,]*)\s+(-|\d+[\d,]*\.\d{2})\s+(-|\d+[\d,]*\.\d{2})\s+(\d+[\d,]*\.\d{2})',
+            body
+        )
+        if not amt_match:
+            amt_match = re.search(
+                r'(?:^|\n)\s*(-|\d+[\d,]*\.\d{2})\s+(-|\d+[\d,]*\.\d{2})\s+(\d+[\d,]*\.\d{2})',
+                body
+            )
+            if not amt_match:
+                continue
+            debit, credit, bal = amt_match.groups()
+            desc_text = body[:amt_match.start()].strip()
+        else:
+            ref, debit, credit, bal = amt_match.groups()
+            desc_text = body[:amt_match.start()].strip()
+
+        is_debit = (debit != '-')
+        is_credit = (credit != '-')
+        amt = 0.0
+        t_type = "Debit"
+
+        if is_debit:
+            amt = float(debit.replace(',', ''))
+            t_type = "Debit"
+            total_debits += amt
+        elif is_credit:
+            amt = float(credit.replace(',', ''))
+            t_type = "Credit"
+            total_credits += amt
+        else:
+            continue
+
+        if bal:
+            try:
+                closing_balance = float(bal.replace(',', ''))
+            except Exception:
+                pass
+
+        txn_date = None
+        for fmt in ['%d/%m/%Y', '%d-%m-%Y', '%Y-%m-%d']:
+            try:
+                txn_date = datetime.strptime(date_str, fmt).date()
+                dates_found.append(txn_date)
+                break
+            except Exception:
+                pass
+
+        merchant = clean_merchant_name(desc_text)
+        cat = categorize_merchant(merchant + " " + desc_text)
+        if t_type == "Credit" and cat != "Salary":
+            if "salary" in desc_text.lower() or amt >= 20000:
+                cat = "Salary"
+
+        pay_method = "UPI" if "UPI" in desc_text.upper() else ("Card" if "POS" in desc_text.upper() else "Bank Transfer")
+
+        txns.append({
+            "merchant_name": merchant[:90],
+            "category": cat,
+            "amount": round(amt, 2),
+            "transaction_type": t_type,
+            "payment_method": pay_method,
+            "transaction_date": txn_date.strftime("%Y-%m-%d") if txn_date else str(date.today()),
+            "ai_score": str(random.randint(1, 4))
+        })
+
+    if len(txns) < 3:
+        return None
+
+    if closing_balance is None:
+        cr_m = re.search(r'([\d,]+\.\d{2})\s*CR', text, flags=re.IGNORECASE)
+        if cr_m:
+            try:
+                closing_balance = float(cr_m.group(1).replace(',', ''))
+            except Exception:
+                pass
+
+    months = 1
+    if dates_found:
+        d_min = min(dates_found)
+        d_max = max(dates_found)
+        span_days = max(1, (d_max - d_min).days)
+        months = max(1, round(span_days / 30.0))
+
+    monthly_income = round(total_credits / months, 2)
+    monthly_expenses = round(total_debits / months, 2)
+    bal = closing_balance if closing_balance is not None else max(round(total_credits - total_debits, 2), 0.0)
+    sav = round(bal, 2)
+
+    return {
+        "currency_code": currency_code,
+        "currency_symbol": currency_symbol,
+        "total_balance": bal,
+        "monthly_income": monthly_income if monthly_income > 0 else round(monthly_expenses * 1.25, 2),
+        "monthly_expenses": monthly_expenses,
+        "savings": sav,
+        "transactions": txns
+    }
+
+
+def parse_generic_table(text: str, country: str = "India") -> Optional[Dict[str, Any]]:
+    """Generic parser for single-line tabular bank statements."""
+    lines = text.splitlines()
+    currency_code, currency_symbol = detect_currency_from_text(text, country)
 
     date_regex = re.compile(r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}\s+[A-Za-z]{3}\s+\d{2,4})')
     amount_regex = re.compile(r'([\d,]+\.\d{2})')
 
+    txns = []
+    total_debits = 0.0
+    total_credits = 0.0
+    dates_found = []
+    base_date = date.today()
+
     for idx, line in enumerate(lines):
         line = line.strip()
-        if not line:
+        if not line or len(line) < 10:
             continue
 
         d_match = date_regex.search(line)
@@ -259,68 +393,112 @@ def parse_pdf_statement(file_bytes: bytes, country: str = "India") -> Dict[str, 
 
         if d_match and amt_matches:
             try:
-                clean_line = date_regex.sub('', line)
                 amt_str = amt_matches[-1].replace(',', '')
                 amount = float(amt_str)
                 if amount <= 0:
                     continue
 
+                clean_line = date_regex.sub('', line)
                 clean_line = amount_regex.sub('', clean_line).strip()
-                desc = clean_line[:80].strip() or "Bank Transaction"
+                desc = clean_merchant_name(clean_line)
 
-                is_credit = any(c in line.upper() for c in ["CR", "CREDIT", "REFUND", "SALARY", "DEPOSIT"])
-                txn_type = "Credit" if is_credit else "Debit"
+                is_credit = any(c in line.upper() for c in [" CR", "CREDIT", "REFUND", "SALARY", "DEPOSIT"])
+                t_type = "Credit" if is_credit else "Debit"
 
-                txn_date = base_date - timedelta(days=idx % 45)
+                txn_date = base_date - timedelta(days=idx % 60)
                 raw_d = d_match.group(1)
-                for fmt in ["%d/%m/%Y", "%d-%m-%Y", "%d %b %Y", "%m/%d/%Y"]:
+                for fmt in ["%d/%m/%Y", "%d-%m-%Y", "%d %b %Y", "%m/%d/%Y", "%Y-%m-%d"]:
                     try:
                         txn_date = datetime.strptime(raw_d, fmt).date()
+                        dates_found.append(txn_date)
                         break
                     except ValueError:
                         pass
 
-                category = categorize_merchant(desc)
-                if txn_type == "Credit" and category != "Salary":
+                cat = categorize_merchant(desc)
+                if t_type == "Credit" and cat != "Salary":
                     if amount > 20000 or "salary" in desc.lower():
-                        category = "Salary"
+                        cat = "Salary"
 
-                if txn_type == "Debit":
+                if t_type == "Debit":
                     total_debits += amount
                 else:
                     total_credits += amount
 
-                transactions.append({
-                    "merchant_name": desc,
-                    "category": category,
+                txns.append({
+                    "merchant_name": desc[:90],
+                    "category": cat,
                     "amount": round(amount, 2),
-                    "transaction_type": txn_type,
-                    "payment_method": "Bank Transfer" if txn_type == "Credit" else "Card/UPI",
+                    "transaction_type": t_type,
+                    "payment_method": "Bank Transfer" if t_type == "Credit" else "Card/UPI",
                     "transaction_date": txn_date.strftime("%Y-%m-%d"),
                     "ai_score": str(random.randint(1, 4))
                 })
             except Exception:
                 continue
 
-    if len(transactions) < 3:
-        gemini_result = parse_with_gemini_multimodal(file_bytes, "application/pdf", country)
-        if gemini_result:
-            return gemini_result
-        return generate_sample_statement(currency=currency_code, country=country)
+    if len(txns) < 3:
+        return None
 
-    balance = max(round(total_credits - total_debits, 2), round(total_credits * 0.45, 2))
-    monthly_salary = total_credits if total_credits > 0 else round(total_debits * 1.3, 2)
+    months = 1
+    if dates_found:
+        d_min = min(dates_found)
+        d_max = max(dates_found)
+        span_days = max(1, (d_max - d_min).days)
+        months = max(1, round(span_days / 30.0))
+
+    monthly_income = round(total_credits / months, 2)
+    monthly_expenses = round(total_debits / months, 2)
+    balance = max(round(total_credits - total_debits, 2), round(monthly_income * 0.45, 2))
     savings = round(balance * 0.35, 2)
 
     return {
         "currency_code": currency_code,
         "currency_symbol": currency_symbol,
         "total_balance": balance,
-        "monthly_income": monthly_salary,
-        "monthly_expenses": round(total_debits, 2),
+        "monthly_income": monthly_income if monthly_income > 0 else round(monthly_expenses * 1.3, 2),
+        "monthly_expenses": monthly_expenses,
         "savings": savings,
-        "transactions": transactions
+        "transactions": txns
     }
+
+
+def parse_pdf_statement(file_bytes: bytes, country: str = "India") -> Dict[str, Any]:
+    """Parse PDF statement using dedicated high-speed multi-line parser, generic parser, or fallback."""
+    extracted_text = ""
+    try:
+        import pypdf
+        reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+        for page in reader.pages[:100]:
+            t = page.extract_text()
+            if t:
+                extracted_text += t + "\n"
+    except Exception as e:
+        print(f"pypdf extraction error: {e}")
+
+    # 1. Try dedicated SBI / multi-line parser (Fastest & most accurate for Indian banks)
+    sbi_result = parse_sbi_multiline(extracted_text, country=country)
+    if sbi_result and len(sbi_result.get("transactions", [])) >= 3:
+        return sbi_result
+
+    # 2. Try generic single-line tabular parser
+    generic_result = parse_generic_table(extracted_text, country=country)
+    if generic_result and len(generic_result.get("transactions", [])) >= 3:
+        return generic_result
+
+    # 3. If minimal text extracted, try Gemini Vision multimodal if available
+    currency_code, currency_symbol = detect_currency_from_text(extracted_text, country)
+    client = get_client()
+    if client and len(file_bytes) < 8 * 1024 * 1024:
+        try:
+            gemini_result = parse_with_gemini_multimodal(file_bytes, "application/pdf", country)
+            if gemini_result and len(gemini_result.get("transactions", [])) >= 3:
+                return gemini_result
+        except Exception as e:
+            print(f"Gemini fallback skipped: {e}")
+
+    # 4. Fallback to realistic country-tailored statement data
+    return generate_sample_statement(currency=currency_code, country=country)
 
 
 def parse_image_statement(file_bytes: bytes, mime_type: str, country: str = "India") -> Dict[str, Any]:

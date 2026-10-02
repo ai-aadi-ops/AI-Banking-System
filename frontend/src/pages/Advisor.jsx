@@ -84,7 +84,7 @@ export default function Advisor() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          customer_id: 1,
+          customer_id: customerId,
           offer,
         }),
       });

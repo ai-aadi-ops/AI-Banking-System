@@ -97,7 +97,12 @@ export default function UploadStatement() {
         body: formData,
       });
 
-      const data = await res.json();
+      let data = {};
+      try {
+        data = await res.json();
+      } catch (e) {
+        data = { detail: `Server responded with status ${res.status}` };
+      }
 
       if (!res.ok) {
         throw new Error(data.detail || "Failed to process bank statement");
@@ -116,9 +121,13 @@ export default function UploadStatement() {
 
       setTimeout(() => {
         navigate("/dashboard");
-      }, 1200);
+      }, 800);
     } catch (err) {
-      setError(err.message || "Failed to parse bank statement. Please try another file or try sample data.");
+      if (err.message && err.message.toLowerCase().includes("failed to fetch")) {
+        setError("Unable to connect to the backend server. The service might be waking up on Render. Please wait 15 seconds and try uploading again.");
+      } else {
+        setError(err.message || "Failed to parse bank statement. Please try another file or try sample data.");
+      }
     } finally {
       setLoading(false);
     }

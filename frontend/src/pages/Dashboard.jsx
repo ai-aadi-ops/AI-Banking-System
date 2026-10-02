@@ -33,27 +33,7 @@ export default function Dashboard() {
     const savedLang = localStorage.getItem("preferred_language") || parsedUser.preferred_language || "en";
     setLang(savedLang);
 
-    // 2. Page refresh handling:
-    // If user refreshed the page and is not demo Robert Wilson:
-    // Clear the uploaded statement data and redirect to upload statement page
-    const navEntries = performance.getEntriesByType("navigation");
-    const isReload = (navEntries && navEntries[0] && navEntries[0].type === "reload") ||
-      (window.performance && window.performance.navigation && window.performance.navigation.type === 1);
-
-    if (isReload && parsedUser.email !== "robert.wilson@demo.com") {
-      // Clear data on backend
-      fetch(`${API_BASE}/statements/clear`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          customer_id: parsedUser.customer_id || parsedUser.id,
-        }),
-      }).catch(console.error);
-
-      sessionStorage.setItem("refresh_redirect", "true");
-      sessionStorage.removeItem("hasActiveStatement");
-      navigate("/upload-statement");
-    }
+    sessionStorage.setItem("hasActiveStatement", "true");
   }, [navigate]);
 
   const handleLanguageChange = (newLang) => {

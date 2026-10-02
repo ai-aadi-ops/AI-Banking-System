@@ -1,8 +1,74 @@
-import { Link } from "react-router-dom";
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import Navbar from "../components/Navbar";
-
+import { API_BASE } from "../config";
+import { Play, Sparkles } from "lucide-react";
 
 export default function Landing() {
+  const navigate = useNavigate();
+  const [demoLoading, setDemoLoading] = useState(false);
+
+  const handleLiveDemo = async () => {
+    setDemoLoading(true);
+
+    try {
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: "robert.wilson@demo.com",
+          password: "demo_password",
+        }),
+      });
+
+      let data = {};
+      try {
+        data = await res.json();
+      } catch (e) {
+        data = {};
+      }
+
+      const demoUser = (res.ok && data.user) ? data.user : {
+        id: 1,
+        customer_id: 1,
+        full_name: "Robert Wilson",
+        email: "robert.wilson@demo.com",
+        country: "United States",
+        preferred_language: "en",
+        currency_code: "USD",
+        currency_symbol: "$",
+        is_demo: true,
+      };
+
+      localStorage.setItem("isLoggedIn", "true");
+      localStorage.setItem("user", JSON.stringify(demoUser));
+      localStorage.setItem("preferred_language", "en");
+      sessionStorage.setItem("hasActiveStatement", "true");
+
+      navigate("/dashboard");
+    } catch (err) {
+      // Offline fallback
+      const demoUser = {
+        id: 1,
+        customer_id: 1,
+        full_name: "Robert Wilson",
+        email: "robert.wilson@demo.com",
+        country: "United States",
+        preferred_language: "en",
+        currency_code: "USD",
+        currency_symbol: "$",
+        is_demo: true,
+      };
+      localStorage.setItem("isLoggedIn", "true");
+      localStorage.setItem("user", JSON.stringify(demoUser));
+      localStorage.setItem("preferred_language", "en");
+      sessionStorage.setItem("hasActiveStatement", "true");
+      navigate("/dashboard");
+    } finally {
+      setDemoLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       <Navbar />
@@ -31,15 +97,24 @@ export default function Landing() {
             Get Started Free
           </Link>
 
-          <Link
-            to="/login"
-            className="rounded-xl border border-slate-700 hover:border-cyan-500 px-8 py-4 text-lg font-medium text-slate-300 hover:text-white transition cursor-pointer"
+          <button
+            onClick={handleLiveDemo}
+            disabled={demoLoading}
+            className="rounded-xl border border-slate-700 hover:border-cyan-500 px-8 py-4 text-lg font-medium text-slate-300 hover:text-white transition cursor-pointer flex items-center gap-2.5 bg-slate-900/60 disabled:opacity-60"
           >
-            Live Demo
-          </Link>
+            {demoLoading ? (
+              <>
+                <span className="inline-block w-4 h-4 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin"></span>
+                <span>Opening Demo...</span>
+              </>
+            ) : (
+              <>
+                <Play size={18} className="text-cyan-400 fill-cyan-400" />
+                <span>Live Demo</span>
+              </>
+            )}
+          </button>
         </div>
-
-
       </section>
     </div>
   );

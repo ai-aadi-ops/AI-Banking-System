@@ -70,7 +70,11 @@ export default function Register() {
       // Navigate to statement upload
       navigate("/upload-statement");
     } catch (err) {
-      setError(err.message || "Failed to create account. Please try again.");
+      if (err.message && err.message.toLowerCase().includes("failed to fetch")) {
+        setError("Unable to connect to the backend server. The free-tier service on Render may be waking up (cold-start takes ~20-30s). Please wait 15 seconds and click Sign Up again.");
+      } else {
+        setError(err.message || "Failed to create account. Please try again.");
+      }
     } finally {
       setLoading(false);
     }
