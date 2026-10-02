@@ -45,7 +45,7 @@ export default function Landing() {
       localStorage.setItem("preferred_language", "en");
       sessionStorage.setItem("hasActiveStatement", "true");
 
-      navigate("/dashboard");
+      navigate("/robert-dashboard");
     } catch (err) {
       // Offline fallback
       const demoUser = {
@@ -63,7 +63,7 @@ export default function Landing() {
       localStorage.setItem("user", JSON.stringify(demoUser));
       localStorage.setItem("preferred_language", "en");
       sessionStorage.setItem("hasActiveStatement", "true");
-      navigate("/dashboard");
+      navigate("/robert-dashboard");
     } finally {
       setDemoLoading(false);
     }

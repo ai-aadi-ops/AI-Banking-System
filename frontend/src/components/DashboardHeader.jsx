@@ -1,10 +1,12 @@
 import { useNavigate } from "react-router-dom";
 import { t } from "../utils/i18n";
+import { getUserSlug } from "../utils/userSlug";
 
 export default function DashboardHeader({ user, lang = "en" }) {
   const navigate = useNavigate();
 
   const userName = user?.full_name || "Customer";
+  const userSlug = getUserSlug(user);
 
   return (
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
@@ -21,8 +23,8 @@ export default function DashboardHeader({ user, lang = "en" }) {
 
       <div className="flex items-center gap-4">
         <button
-          onClick={() => navigate("/advisor")}
-          className="rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-3 font-semibold hover:from-cyan-600 hover:to-blue-700 transition shadow-lg shadow-cyan-500/25 flex items-center gap-2 cursor-pointer text-sm"
+          onClick={() => navigate(`/${userSlug}-dashboard/ai-advisor`)}
+          className="rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-3 font-semibold hover:from-cyan-600 hover:to-blue-700 transition shadow-lg shadow-cyan-500/25 flex items-center gap-2 cursor-pointer text-sm text-white"
         >
           <span>🤖</span>
           <span>{t("aiAdvisor", lang)}</span>
@@ -35,4 +37,3 @@ export default function DashboardHeader({ user, lang = "en" }) {
     </div>
   );
 }
-

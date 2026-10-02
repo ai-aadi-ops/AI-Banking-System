@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { API_BASE } from "../config";
 import { COUNTRIES, INDIAN_LANGUAGES, ALL_LANGUAGES, t } from "../utils/i18n";
 import { Globe, User, Mail, Lock, Landmark } from "lucide-react";
+import { getUserSlug } from "../utils/userSlug";
 
 export default function Register() {
   const navigate = useNavigate();
@@ -67,8 +68,9 @@ export default function Register() {
       localStorage.setItem("user", JSON.stringify(data.user));
       localStorage.setItem("preferred_language", data.user.preferred_language || selectedLanguage);
 
-      // Navigate to statement upload
-      navigate("/upload-statement");
+      // Navigate to personalized statement upload
+      const userSlug = getUserSlug(data.user);
+      navigate(`/${userSlug}-dashboard/upload-statement`);
     } catch (err) {
       if (err.message && err.message.toLowerCase().includes("failed to fetch")) {
         setError("Unable to connect to the backend server. The free-tier service on Render may be waking up (cold-start takes ~20-30s). Please wait 15 seconds and click Sign Up again.");

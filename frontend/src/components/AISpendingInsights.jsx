@@ -1,7 +1,6 @@
 import { API_BASE } from "../config";
 import { useEffect, useState } from "react";
 import { PieChart } from "lucide-react";
-
 import { formatCurrency, t } from "../utils/i18n";
 
 export default function AISpendingInsights({
@@ -13,13 +12,28 @@ export default function AISpendingInsights({
   const [data, setData] = useState(null);
 
   useEffect(() => {
+    let isMounted = true;
     fetch(`${API_BASE}/ai/analyze/${customerId}`)
-      .then((res) => res.json())
-      .then(setData)
-      .catch(console.error);
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((result) => {
+        if (!isMounted) return;
+        if (result && !result.detail) {
+          setData(result);
+        }
+      })
+      .catch((err) => {
+        console.warn("AISpendingInsights fetch error:", err);
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, [customerId]);
 
-  if (!data) return null;
+  if (!data || data.detail) return null;
 
   return (
     <div className="mt-10 rounded-2xl bg-slate-900 border border-slate-800 p-8">
@@ -31,7 +45,6 @@ export default function AISpendingInsights({
       </div>
 
       <div className="grid md:grid-cols-2 gap-8 mt-8">
-
         <div>
           <p className="text-slate-400">Total Spent</p>
           <h2 className="text-4xl font-bold mt-2">
@@ -88,9 +101,7 @@ export default function AISpendingInsights({
             <p className="text-slate-400 text-sm py-4">No category spending data available yet.</p>
           )}
         </div>
-
       </div>
     </div>
   );
 }
-

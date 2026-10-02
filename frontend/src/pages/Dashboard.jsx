@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { API_BASE } from "../config";
 import { t, ALL_LANGUAGES } from "../utils/i18n";
+import { getUserSlug } from "../utils/userSlug";
 import AISpendingInsights from "../components/AISpendingInsights";
 import DashboardHeader from "../components/DashboardHeader";
 import DashboardCards from "../components/DashboardCards";
@@ -12,13 +13,51 @@ import { Globe, Trash2, UploadCloud, LogOut, Landmark } from "lucide-react";
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { userSlug } = useParams();
 
-  const [user, setUser] = useState(null);
-  const [lang, setLang] = useState("en");
+  const [user, setUser] = useState(() => {
+    try {
+      const stored = localStorage.getItem("user");
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [lang, setLang] = useState(() => {
+    try {
+      return localStorage.getItem("preferred_language") || "en";
+    } catch {
+      return "en";
+    }
+  });
+
   const [clearing, setClearing] = useState(false);
 
   useEffect(() => {
-    // 1. Check user login session
+    // 1. Direct Robert Wilson demo link support: /robert-dashboard
+    if (userSlug === "robert" && (!user || user.email !== "robert.wilson@demo.com")) {
+      const demoUser = {
+        id: 1,
+        customer_id: 1,
+        full_name: "Robert Wilson",
+        email: "robert.wilson@demo.com",
+        country: "United States",
+        preferred_language: "en",
+        currency_code: "USD",
+        currency_symbol: "$",
+        is_demo: true,
+      };
+      localStorage.setItem("isLoggedIn", "true");
+      localStorage.setItem("user", JSON.stringify(demoUser));
+      localStorage.setItem("preferred_language", "en");
+      sessionStorage.setItem("hasActiveStatement", "true");
+      setUser(demoUser);
+      setLang("en");
+      return;
+    }
+
+    // 2. Regular user session validation
     const storedUser = localStorage.getItem("user");
     const isLoggedIn = localStorage.getItem("isLoggedIn");
 
@@ -27,14 +66,23 @@ export default function Dashboard() {
       return;
     }
 
-    const parsedUser = JSON.parse(storedUser);
-    setUser(parsedUser);
+    try {
+      const parsedUser = JSON.parse(storedUser);
+      setUser(parsedUser);
 
-    const savedLang = localStorage.getItem("preferred_language") || parsedUser.preferred_language || "en";
-    setLang(savedLang);
+      const savedLang = localStorage.getItem("preferred_language") || parsedUser.preferred_language || "en";
+      setLang(savedLang);
+      sessionStorage.setItem("hasActiveStatement", "true");
 
-    sessionStorage.setItem("hasActiveStatement", "true");
-  }, [navigate]);
+      // Verify that URL slug matches current user; if not and not demo, align to user's slug
+      const expectedSlug = getUserSlug(parsedUser);
+      if (userSlug && userSlug !== expectedSlug && userSlug !== "robert") {
+        navigate(`/${expectedSlug}-dashboard`, { replace: true });
+      }
+    } catch (e) {
+      navigate("/login");
+    }
+  }, [userSlug, navigate]);
 
   const handleLanguageChange = (newLang) => {
     setLang(newLang);
@@ -47,6 +95,8 @@ export default function Dashboard() {
     sessionStorage.removeItem("hasActiveStatement");
     navigate("/login");
   };
+
+  const activeSlug = getUserSlug(user) || userSlug || "user";
 
   const handleClearData = async () => {
     if (!user) return;
@@ -64,7 +114,7 @@ export default function Dashboard() {
       });
 
       sessionStorage.removeItem("hasActiveStatement");
-      navigate("/upload-statement");
+      navigate(`/${activeSlug}-dashboard/upload-statement`);
     } catch (err) {
       console.error("Failed to clear data:", err);
     } finally {
@@ -72,7 +122,15 @@ export default function Dashboard() {
     }
   };
 
-  if (!user) return null;
+  // Safe fallback UI if user is still synchronizing
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white px-6">
+        <div className="w-10 h-10 border-4 border-cyan-400 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p className="text-slate-400 text-sm">Loading your banking dashboard...</p>
+      </div>
+    );
+  }
 
   const customerId = user.customer_id || user.id || 1;
   const currencySymbol = user.currency_symbol || "$";
@@ -116,7 +174,7 @@ export default function Dashboard() {
 
           {/* Upload New Statement Button */}
           <button
-            onClick={() => navigate("/upload-statement")}
+            onClick={() => navigate(`/${activeSlug}-dashboard/upload-statement`)}
             className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-3.5 py-2 rounded-xl text-xs font-semibold transition cursor-pointer"
             title="Upload new statement"
           >

@@ -14,6 +14,7 @@ import {
   Globe,
   Landmark,
 } from "lucide-react";
+import { getUserSlug } from "../utils/userSlug";
 
 export default function UploadStatement() {
   const navigate = useNavigate();
@@ -119,8 +120,9 @@ export default function UploadStatement() {
       localStorage.setItem("user", JSON.stringify(updatedUser));
       sessionStorage.setItem("hasActiveStatement", "true");
 
+      const userSlug = getUserSlug(updatedUser);
       setTimeout(() => {
-        navigate("/dashboard");
+        navigate(`/${userSlug}-dashboard`);
       }, 800);
     } catch (err) {
       if (err.message && err.message.toLowerCase().includes("failed to fetch")) {
@@ -165,8 +167,9 @@ export default function UploadStatement() {
       localStorage.setItem("user", JSON.stringify(updatedUser));
       sessionStorage.setItem("hasActiveStatement", "true");
 
+      const userSlug = getUserSlug(updatedUser);
       setTimeout(() => {
-        navigate("/dashboard");
+        navigate(`/${userSlug}-dashboard`);
       }, 1000);
     } catch (err) {
       setError(err.message || "Failed to load sample data.");

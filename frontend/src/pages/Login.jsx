@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { API_BASE } from "../config";
 import { t, ALL_LANGUAGES } from "../utils/i18n";
 import { Landmark, Mail, Lock, Globe, Sparkles } from "lucide-react";
+import { getUserSlug } from "../utils/userSlug";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -57,13 +58,15 @@ export default function Login() {
       localStorage.setItem("user", JSON.stringify(data.user));
       localStorage.setItem("preferred_language", data.user.preferred_language || lang);
 
+      const userSlug = getUserSlug(data.user);
+
       // If demo user Robert Wilson, go straight to dashboard
       if (data.user.email === "robert.wilson@demo.com") {
         sessionStorage.setItem("hasActiveStatement", "true");
-        navigate("/dashboard");
+        navigate(`/${userSlug}-dashboard`);
       } else {
-        // For new user, redirect to statement upload
-        navigate("/upload-statement");
+        // Redirect to personalized statement upload
+        navigate(`/${userSlug}-dashboard/upload-statement`);
       }
     } catch (err) {
       setError(err.message || "Failed to log in. Please check your credentials.");
@@ -102,7 +105,7 @@ export default function Login() {
       localStorage.setItem("preferred_language", data.user.preferred_language || "en");
       sessionStorage.setItem("hasActiveStatement", "true");
 
-      navigate("/dashboard");
+      navigate("/robert-dashboard");
     } catch (err) {
       setError("Unable to initialize demo user. Please try again.");
     } finally {

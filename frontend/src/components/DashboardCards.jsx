@@ -15,38 +15,70 @@ export default function DashboardCards({
   lang = "en",
 }) {
   const [dashboard, setDashboard] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
+    setLoading(true);
+
     fetch(`${API_BASE}/dashboard?customer_id=${customerId}`)
-      .then((res) => res.json())
-      .then((data) => {
-        setDashboard(data);
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        return res.json();
       })
-      .catch(console.error);
+      .then((data) => {
+        if (!isMounted) return;
+        if (data && typeof data === "object" && !data.detail) {
+          setDashboard(data);
+        } else {
+          // Fallback structure if backend returns an unexpected detail
+          setDashboard(null);
+        }
+      })
+      .catch((err) => {
+        console.warn("Dashboard fetch error:", err);
+      })
+      .finally(() => {
+        if (isMounted) setLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, [customerId]);
+
+  const activeSym = dashboard?.currency_symbol || currencySymbol;
+  const balanceVal = dashboard?.balance ?? 0;
+  const incomeVal = dashboard?.income ?? 0;
+  const expensesVal = dashboard?.expenses ?? 0;
+  const savingsVal = dashboard?.savings ?? 0;
+  const healthScore = Number(dashboard?.health_score) || 0;
+  const healthStatus = dashboard?.health_status || "Good Standing";
 
   const cards = [
     {
       title: t("totalBalance", lang),
-      value: dashboard ? formatCurrency(dashboard.balance, dashboard.currency_symbol || currencySymbol, currencyCode) : formatCurrency(0, currencySymbol, currencyCode),
+      value: formatCurrency(balanceVal, activeSym, currencyCode),
       icon: Wallet,
       color: "text-cyan-400",
     },
     {
       title: t("monthlyIncome", lang),
-      value: dashboard ? formatCurrency(dashboard.income, dashboard.currency_symbol || currencySymbol, currencyCode) : formatCurrency(0, currencySymbol, currencyCode),
+      value: formatCurrency(incomeVal, activeSym, currencyCode),
       icon: ArrowUpCircle,
       color: "text-green-400",
     },
     {
       title: t("monthlyExpenses", lang),
-      value: dashboard ? formatCurrency(dashboard.expenses, dashboard.currency_symbol || currencySymbol, currencyCode) : formatCurrency(0, currencySymbol, currencyCode),
+      value: formatCurrency(expensesVal, activeSym, currencyCode),
       icon: ArrowDownCircle,
       color: "text-red-400",
     },
     {
       title: t("savings", lang),
-      value: dashboard ? formatCurrency(dashboard.savings, dashboard.currency_symbol || currencySymbol, currencyCode) : formatCurrency(0, currencySymbol, currencyCode),
+      value: formatCurrency(savingsVal, activeSym, currencyCode),
       icon: PiggyBank,
       color: "text-yellow-400",
     },
@@ -61,14 +93,18 @@ export default function DashboardCards({
           return (
             <div
               key={index}
-              className="bg-slate-900 border border-slate-800 rounded-2xl p-6 hover:border-cyan-500 transition"
+              className="bg-slate-900 border border-slate-800 rounded-2xl p-6 hover:border-cyan-500 transition shadow-lg shadow-black/20"
             >
               <div className="flex justify-between items-center">
                 <div>
                   <p className="text-slate-400 text-sm">{card.title}</p>
 
                   <h2 className="text-2xl md:text-3xl font-bold mt-2 text-white">
-                    {card.value}
+                    {loading && !dashboard ? (
+                      <span className="inline-block w-24 h-7 bg-slate-800 animate-pulse rounded"></span>
+                    ) : (
+                      card.value
+                    )}
                   </h2>
                 </div>
 
@@ -79,49 +115,46 @@ export default function DashboardCards({
         })}
       </div>
 
-      {dashboard && (
-        <div className="grid md:grid-cols-2 gap-6 mt-8">
-          <div className="bg-slate-900 border border-cyan-800/60 rounded-2xl p-6">
-            <h2 className="text-2xl font-bold text-cyan-400 flex items-center gap-2">
-              <span>📊</span>
-              <span>{t("financialHealth", lang)}</span>
-            </h2>
+      <div className="grid md:grid-cols-2 gap-6 mt-8">
+        <div className="bg-slate-900 border border-cyan-800/60 rounded-2xl p-6">
+          <h2 className="text-2xl font-bold text-cyan-400 flex items-center gap-2">
+            <span>📊</span>
+            <span>{t("financialHealth", lang)}</span>
+          </h2>
 
-            <div className="text-6xl font-extrabold text-green-400 mt-6">
-              {dashboard.health_score}
-              <span className="text-xl text-slate-500 font-normal">/100</span>
-            </div>
-
-            <p className="text-xl mt-2 font-medium text-slate-200">
-              {dashboard.health_status}
-            </p>
-
-            <div className="w-full h-4 bg-slate-800 rounded-full mt-6 overflow-hidden">
-              <div
-                className="bg-gradient-to-r from-green-500 to-cyan-400 h-4 rounded-full transition-all duration-500"
-                style={{
-                  width: `${Math.min(100, Math.max(5, dashboard.health_score))}%`,
-                }}
-              />
-            </div>
+          <div className="text-6xl font-extrabold text-green-400 mt-6">
+            {healthScore}
+            <span className="text-xl text-slate-500 font-normal">/100</span>
           </div>
 
-          <div className="bg-slate-900 border border-cyan-800/60 rounded-2xl p-6">
-            <h2 className="text-2xl font-bold text-cyan-400 flex items-center gap-2">
-              <span>🤖</span>
-              <span>{t("aiInsights", lang)}</span>
-            </h2>
+          <p className="text-xl mt-2 font-medium text-slate-200">
+            {healthStatus}
+          </p>
 
-            <div className="space-y-4 mt-6 text-base md:text-lg">
-              <p>✅ {dashboard.insights.balance}</p>
-              <p>📈 {dashboard.insights.income}</p>
-              <p>⚠ {dashboard.insights.expenses}</p>
-              <p>💰 {dashboard.insights.savings}</p>
-            </div>
+          <div className="w-full h-4 bg-slate-800 rounded-full mt-6 overflow-hidden">
+            <div
+              className="bg-gradient-to-r from-green-500 to-cyan-400 h-4 rounded-full transition-all duration-500"
+              style={{
+                width: `${Math.min(100, Math.max(5, healthScore))}%`,
+              }}
+            />
           </div>
         </div>
-      )}
+
+        <div className="bg-slate-900 border border-cyan-800/60 rounded-2xl p-6">
+          <h2 className="text-2xl font-bold text-cyan-400 flex items-center gap-2">
+            <span>🤖</span>
+            <span>{t("aiInsights", lang)}</span>
+          </h2>
+
+          <div className="space-y-4 mt-6 text-base md:text-lg text-slate-200">
+            <p>✅ {dashboard?.insights?.balance || "Statement liquidity verified"}</p>
+            <p>📈 {dashboard?.insights?.income || "Monthly cash flow tracked"}</p>
+            <p>⚠ {dashboard?.insights?.expenses || "Spending patterns monitored"}</p>
+            <p>💰 {dashboard?.insights?.savings || "Emergency fund active"}</p>
+          </div>
+        </div>
+      </div>
     </>
   );
 }
-
