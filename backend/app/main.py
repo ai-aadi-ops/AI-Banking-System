@@ -48,6 +48,33 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi.responses import JSONResponse
+from fastapi.requests import Request
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    import traceback
+    traceback.print_exc()
+    response = JSONResponse(
+        status_code=500,
+        content={"detail": f"Server Error: {str(exc)}"}
+    )
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    response = JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail}
+    )
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
+
 
 def hash_password(password: str) -> str:
     salt = secrets.token_hex(16)
@@ -66,22 +93,41 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def ensure_schema_columns(db: Session):
     """Safely migrate any missing columns in existing PostgreSQL or SQLite databases."""
-    columns_to_add = [
-        ("users", "country", "VARCHAR(50) DEFAULT 'India'"),
-        ("users", "preferred_language", "VARCHAR(20) DEFAULT 'en'"),
-        ("users", "currency_code", "VARCHAR(10) DEFAULT 'INR'"),
-        ("users", "currency_symbol", "VARCHAR(10) DEFAULT '₹'"),
-        ("accounts", "currency_symbol", "VARCHAR(10) DEFAULT '₹'"),
-        ("customers", "country", "VARCHAR(50) DEFAULT 'India'"),
-        ("customers", "currency_code", "VARCHAR(10) DEFAULT 'INR'"),
-        ("customers", "currency_symbol", "VARCHAR(10) DEFAULT '₹'"),
-    ]
-    for table, col, col_def in columns_to_add:
-        try:
-            db.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {col_def};"))
-            db.commit()
-        except Exception:
-            db.rollback()
+    from sqlalchemy import inspect
+    try:
+        inspector = inspect(db.bind)
+        existing_tables = inspector.get_table_names()
+
+        columns_to_add = [
+            ("users", "country", "VARCHAR(50) DEFAULT 'India'"),
+            ("users", "preferred_language", "VARCHAR(20) DEFAULT 'en'"),
+            ("users", "currency_code", "VARCHAR(10) DEFAULT 'INR'"),
+            ("users", "currency_symbol", "VARCHAR(10) DEFAULT '₹'"),
+            ("users", "is_active", "VARCHAR(10) DEFAULT 'true'"),
+            ("accounts", "currency_symbol", "VARCHAR(10) DEFAULT '₹'"),
+            ("customers", "country", "VARCHAR(50) DEFAULT 'India'"),
+            ("customers", "currency_code", "VARCHAR(10) DEFAULT 'INR'"),
+            ("customers", "currency_symbol", "VARCHAR(10) DEFAULT '₹'"),
+        ]
+
+        is_sqlite = db.bind.dialect.name == "sqlite"
+
+        for table, col, col_def in columns_to_add:
+            if table not in existing_tables:
+                continue
+            cols = [c["name"] for c in inspector.get_columns(table)]
+            if col not in cols:
+                try:
+                    if is_sqlite:
+                        db.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_def};"))
+                    else:
+                        db.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {col_def};"))
+                    db.commit()
+                except Exception as ex:
+                    print(f"Schema alter note ({table}.{col}): {ex}")
+                    db.rollback()
+    except Exception as e:
+        print(f"Schema inspection warning: {e}")
 
 
 try:
@@ -126,96 +172,139 @@ def trigger_seed(force: bool = False, db: Session = Depends(get_db)):
 
 @app.post("/auth/register")
 def register_user(body: dict, db: Session = Depends(get_db)):
-    email = body.get("email", "").strip().lower()
-    full_name = body.get("full_name", "").strip()
-    password = body.get("password", "")
-    country = body.get("country", "India")
-    preferred_language = body.get("preferred_language", "en")
-    currency_code = body.get("currency_code", "INR")
-    currency_symbol = body.get("currency_symbol", "₹")
+    try:
+        email = body.get("email", "").strip().lower()
+        full_name = body.get("full_name", "").strip()
+        password = body.get("password", "")
+        country = body.get("country", "India")
+        preferred_language = body.get("preferred_language", "en")
+        currency_code = body.get("currency_code", "INR")
+        currency_symbol = body.get("currency_symbol", "₹")
 
-    if not email or not password or not full_name:
-        raise HTTPException(status_code=400, detail="Full name, email and password are required")
+        if not email or not password or not full_name:
+            raise HTTPException(status_code=400, detail="Full name, email and password are required")
 
-    from app.seeder import seed_database_if_empty
-    seed_database_if_empty(db)
+        from app.seeder import seed_database_if_empty, reset_postgres_sequences
+        seed_database_if_empty(db)
 
-    existing_user = db.query(User).filter(User.email == email).first()
-    if existing_user:
-        raise HTTPException(status_code=400, detail="An account with this email already exists")
+        existing_user = db.query(User).filter(User.email == email).first()
+        if existing_user:
+            raise HTTPException(status_code=400, detail="An account with this email already exists")
 
-    pwd_hash = hash_password(password)
+        pwd_hash = hash_password(password)
 
-    new_user = User(
-        full_name=full_name,
-        email=email,
-        password_hash=pwd_hash,
-        role="customer",
-        country=country,
-        preferred_language=preferred_language,
-        currency_code=currency_code,
-        currency_symbol=currency_symbol,
-        is_active="true"
-    )
-    db.add(new_user)
-    db.flush()
+        new_user = User(
+            full_name=full_name,
+            email=email,
+            password_hash=pwd_hash,
+            role="customer",
+            country=country,
+            preferred_language=preferred_language,
+            currency_code=currency_code,
+            currency_symbol=currency_symbol,
+            is_active="true"
+        )
+        db.add(new_user)
+        db.flush()
 
-    customer = Customer(
-        customer_id=new_user.id,
-        customer_code=f"CUST{new_user.id:04d}",
-        full_name=full_name,
-        email=email,
-        phone="+91-9876543210" if country == "India" else "+1-555-0100",
-        salary=0.0,
-        customer_since=date.today(),
-        kyc_status="VERIFIED",
-        country=country,
-        currency_code=currency_code,
-        currency_symbol=currency_symbol,
-    )
-    db.add(customer)
+        # Determine unique customer_id that is NOT taken
+        existing_customer = db.query(Customer).filter(Customer.email == email).first()
+        if existing_customer:
+            customer = existing_customer
+        else:
+            max_cust = db.query(func.max(Customer.customer_id)).scalar() or 0
+            cand_id = max(max_cust + 1, new_user.id)
+            while db.query(Customer).filter(Customer.customer_id == cand_id).first():
+                cand_id += 1
 
-    account = Account(
-        account_id=new_user.id,
-        customer_id=new_user.id,
-        account_number=f"ACC-{new_user.id:04d}8901",
-        account_type="Savings",
-        balance=0.0,
-        savings=0.0,
-        monthly_salary=0.0,
-        currency_symbol=currency_symbol,
-        status="ACTIVE"
-    )
-    db.add(account)
+            cust_code = f"CUST{cand_id:04d}"
+            while db.query(Customer).filter(Customer.customer_code == cust_code).first():
+                cand_id += 1
+                cust_code = f"CUST{cand_id:04d}"
 
-    card = Card(
-        card_id=new_user.id,
-        customer_id=new_user.id,
-        card_number=f"4532-{random.randint(1000, 9999)}-{random.randint(1000, 9999)}-{random.randint(1000, 9999)}",
-        expiry_date="12/29",
-        cvv=str(random.randint(100, 999)),
-        card_type="Visa Platinum",
-        status="ACTIVE"
-    )
-    db.add(card)
+            customer = Customer(
+                customer_id=cand_id,
+                customer_code=cust_code,
+                full_name=full_name,
+                email=email,
+                phone="+91-9876543210" if country == "India" else "+1-555-0100",
+                salary=0.0,
+                customer_since=date.today(),
+                kyc_status="VERIFIED",
+                country=country,
+                currency_code=currency_code,
+                currency_symbol=currency_symbol,
+            )
+            db.add(customer)
+            db.flush()
 
-    db.commit()
+        # Determine unique account_id that is NOT taken
+        existing_account = db.query(Account).filter(Account.customer_id == customer.customer_id).first()
+        if not existing_account:
+            max_acc = db.query(func.max(Account.account_id)).scalar() or 0
+            cand_acc_id = max(max_acc + 1, customer.customer_id)
+            while db.query(Account).filter(Account.account_id == cand_acc_id).first():
+                cand_acc_id += 1
 
-    return {
-        "status": "success",
-        "user": {
-            "id": new_user.id,
-            "customer_id": new_user.id,
-            "full_name": new_user.full_name,
-            "email": new_user.email,
-            "country": new_user.country,
-            "preferred_language": new_user.preferred_language,
-            "currency_code": new_user.currency_code,
-            "currency_symbol": new_user.currency_symbol,
-            "is_demo": False
-        },
-        "token": f"token_{new_user.id}_{secrets.token_hex(8)}"
-    }
+            account = Account(
+                account_id=cand_acc_id,
+                customer_id=customer.customer_id,
+                account_number=f"ACC-{customer.customer_id:04d}8901",
+                account_type="Savings",
+                balance=0.0,
+                savings=0.0,
+                monthly_salary=0.0,
+                currency_symbol=currency_symbol,
+                status="ACTIVE"
+            )
+            db.add(account)
+            db.flush()
+
+        # Determine unique card_id that is NOT taken
+        existing_card = db.query(Card).filter(Card.customer_id == customer.customer_id).first()
+        if not existing_card:
+            max_card = db.query(func.max(Card.card_id)).scalar() or 0
+            cand_card_id = max(max_card + 1, customer.customer_id)
+            while db.query(Card).filter(Card.card_id == cand_card_id).first():
+                cand_card_id += 1
+
+            card = Card(
+                card_id=cand_card_id,
+                customer_id=customer.customer_id,
+                card_number=f"4532-{random.randint(1000, 9999)}-{random.randint(1000, 9999)}-{random.randint(1000, 9999)}",
+                expiry_date="12/29",
+                cvv=str(random.randint(100, 999)),
+                card_type="Visa Platinum",
+                status="ACTIVE"
+            )
+            db.add(card)
+            db.flush()
+
+        db.commit()
+        reset_postgres_sequences(db)
+
+        return {
+            "status": "success",
+            "user": {
+                "id": new_user.id,
+                "customer_id": customer.customer_id,
+                "full_name": new_user.full_name,
+                "email": new_user.email,
+                "country": new_user.country,
+                "preferred_language": new_user.preferred_language,
+                "currency_code": new_user.currency_code,
+                "currency_symbol": new_user.currency_symbol,
+                "is_demo": False
+            },
+            "token": f"token_{new_user.id}_{secrets.token_hex(8)}"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
 
 
 @app.post("/auth/login")
@@ -257,11 +346,14 @@ def login_user(body: dict, db: Session = Depends(get_db)):
     if not verify_password(password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
+    cust = db.query(Customer).filter(Customer.email == user.email).first()
+    cust_id = cust.customer_id if cust else user.id
+
     return {
         "status": "success",
         "user": {
             "id": user.id,
-            "customer_id": user.id,
+            "customer_id": cust_id,
             "full_name": user.full_name,
             "email": user.email,
             "country": user.country or "India",

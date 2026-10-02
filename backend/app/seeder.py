@@ -157,6 +157,29 @@ def seed_database(db: Session, force: bool = False):
     customer_exists = db.query(Customer).filter(Customer.customer_id == 1).first()
 
     if customer_exists and not force:
+        # Ensure Robert Wilson user exists even if customer/transactions were already seeded
+        rw_user = db.query(User).filter(User.email.in_(["robert.wilson@demo.com", "robert.wilson@apexbank.com"])).first()
+        if not rw_user:
+            id_1_taken = db.query(User).filter(User.id == 1).first() is not None
+            user_kwargs = dict(
+                full_name="Robert Wilson",
+                email="robert.wilson@demo.com",
+                password_hash="demo_password_hash_2026",
+                role="customer",
+                country="United States",
+                preferred_language="en",
+                currency_code="USD",
+                currency_symbol="$",
+                is_active="true"
+            )
+            if not id_1_taken:
+                user_kwargs["id"] = 1
+            db.add(User(**user_kwargs))
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+
         # Check if transactions exist
         txn_count = db.query(Transaction).filter(Transaction.customer_id == 1).count()
         if txn_count > 0:

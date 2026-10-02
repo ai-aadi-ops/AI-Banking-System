@@ -42,7 +42,12 @@ export default function Login() {
         body: JSON.stringify({ email, password }),
       });
 
-      const data = await res.json();
+      let data = {};
+      try {
+        data = await res.json();
+      } catch (parseErr) {
+        data = { detail: `Server responded with status ${res.status}` };
+      }
 
       if (!res.ok) {
         throw new Error(data.detail || "Invalid login credentials");
@@ -81,7 +86,12 @@ export default function Login() {
         }),
       });
 
-      const data = await res.json();
+      let data = {};
+      try {
+        data = await res.json();
+      } catch (parseErr) {
+        data = { detail: `Server responded with status ${res.status}` };
+      }
 
       if (!res.ok) {
         throw new Error(data.detail || "Demo login failed");
