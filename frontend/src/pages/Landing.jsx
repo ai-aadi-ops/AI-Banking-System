@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import Navbar from "../components/Navbar";
 
 
@@ -22,15 +23,22 @@ export default function Landing() {
           banking offers and chat with your own AI financial advisor.
         </p>
 
-        <div className="mt-10 flex gap-5">
-          <button className="rounded-xl bg-cyan-500 px-8 py-4 text-lg font-bold hover:bg-cyan-600">
-            Get Started
-          </button>
+        <div className="mt-10 flex flex-wrap justify-center gap-5">
+          <Link
+            to="/register"
+            className="rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-8 py-4 text-lg font-bold text-white hover:from-cyan-600 hover:to-blue-700 shadow-lg shadow-cyan-500/25 transition cursor-pointer"
+          >
+            Get Started Free
+          </Link>
 
-          <button className="rounded-xl border border-slate-700 px-8 py-4 text-lg hover:border-cyan-500">
+          <Link
+            to="/login"
+            className="rounded-xl border border-slate-700 hover:border-cyan-500 px-8 py-4 text-lg font-medium text-slate-300 hover:text-white transition cursor-pointer"
+          >
             Live Demo
-          </button>
+          </Link>
         </div>
+
 
       </section>
     </div>

@@ -18,6 +18,9 @@ class Customer(Base):
     salary = Column(Numeric(12, 2))
     customer_since = Column(Date)
     kyc_status = Column(String(20))
+    country = Column(String(50), default="India")
+    currency_code = Column(String(10), default="INR")
+    currency_symbol = Column(String(10), default="₹")
     created_at = Column(TIMESTAMP, server_default=func.now())
 
 class Account(Base):
@@ -30,8 +33,10 @@ class Account(Base):
     balance = Column(Numeric(12, 2))
     savings = Column(Numeric(12, 2))
     monthly_salary = Column(Numeric(12, 2))
+    currency_symbol = Column(String(10), default="₹")
     status = Column(String(20))
     created_at = Column(TIMESTAMP, server_default=func.now())
+
 
 
 class Card(Base):
@@ -97,5 +102,10 @@ class User(Base):
     email = Column(String(100), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
     role = Column(String(20), default="customer")
+    country = Column(String(50), default="India")
+    preferred_language = Column(String(20), default="en")
+    currency_code = Column(String(10), default="INR")
+    currency_symbol = Column(String(10), default="₹")
     is_active = Column(String(10), default="true")
     created_at = Column(TIMESTAMP, server_default=func.now())
+

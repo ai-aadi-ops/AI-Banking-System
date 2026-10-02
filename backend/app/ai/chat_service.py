@@ -8,14 +8,15 @@ def chat_with_ai(
     health,
     question,
     offer=None,
+    currency_symbol="$",
+    language="en",
 ):
-    monthly_salary = float(customer.salary)
+    monthly_salary = float(customer.salary) if customer and customer.salary else 0.0
     annual_salary = monthly_salary * 12
 
-    current_balance = float(account.balance)
-    savings = float(account.savings)
+    current_balance = float(account.balance) if account and account.balance else 0.0
+    savings = float(account.savings) if account and account.savings else 0.0
 
-    # Prepare personalized offer information for the AI
     # Prepare personalized offer information for the AI
     if offer:
         offer_type = offer.get("type", "unknown")
@@ -25,10 +26,10 @@ def chat_with_ai(
 Personalized Offer Type: PERSONAL LOAN
 
 Loan Amount:
-${float(offer.get("amount", 0)):,.2f}
+{currency_symbol}{float(offer.get("amount", 0)):,.2f}
 
 Monthly EMI / Deduction:
-${float(offer.get("monthly_emi", 0)):,.2f}
+{currency_symbol}{float(offer.get("monthly_emi", 0)):,.2f}
 
 Tenure:
 {offer.get("tenure_months", 0)} months
@@ -51,10 +52,10 @@ Merchant:
 {offer.get("merchant", "")}
 
 Original Price:
-${float(offer.get("original_price", offer.get("amount", 0))):,.2f}
+{currency_symbol}{float(offer.get("original_price", offer.get("amount", 0))):,.2f}
 
 Purchase Amount:
-${float(offer.get("amount", 0)):,.2f}
+{currency_symbol}{float(offer.get("amount", 0)):,.2f}
 
 Discount:
 {offer.get("discount_percent", 0)}%
@@ -62,6 +63,7 @@ Discount:
 Reason:
 {offer.get("reason", "")}
 """
+
 
         else:
             offer_information = "No valid personalized offer is available."
@@ -71,14 +73,14 @@ Reason:
 No personalized offer is currently available.
 
 LOAN ELIGIBILITY RULE:
-The maximum allowed monthly EMI for this demo is ${MAX_EMI_AMOUNT:,.2f}.
+The maximum allowed monthly EMI for this demo is {currency_symbol}{MAX_EMI_AMOUNT:,.2f}.
 
 If the requested loan results in a monthly EMI above
-${MAX_EMI_AMOUNT:,.2f}, the loan is NOT eligible.
+{currency_symbol}{MAX_EMI_AMOUNT:,.2f}, the loan is NOT eligible.
 
 The AI Advisor must clearly explain that the requested loan
 cannot currently be offered because the calculated EMI exceeds
-the maximum affordability threshold of ${MAX_EMI_AMOUNT:,.2f}
+the maximum affordability threshold of {currency_symbol}{MAX_EMI_AMOUNT:,.2f}
 per month.
 
 Advise the customer to consider a lower loan amount,
@@ -87,36 +89,48 @@ a larger down payment, or a more affordable financing option.
 Do not present a rejected loan as an available or pre-approved offer.
 """
 
+    lang_map = {
+        "hi": "Hindi (हिंदी)",
+        "bn": "Bengali (বাংলা)",
+        "te": "Telugu (తెలుగు)",
+        "mr": "Marathi (मराठी)",
+        "ta": "Tamil (தமிழ்)",
+        "gu": "Gujarati (ગુજરાતી)",
+        "kn": "Kannada (ಕನ್ನಡ)",
+        "ml": "Malayalam (മലയാളം)",
+        "pa": "Punjabi (ਪੰਜਾਬੀ)",
+        "en": "English",
+    }
+    lang_name = lang_map.get(language.lower(), "English")
+
     prompt = f"""
-You are an AI Banking Financial Advisor.
+You are an AI Banking Financial Advisor for an intelligent banking platform.
 
 CUSTOMER PROFILE
 ----------------
-Customer Name:
-{customer.full_name}
+Customer Name: {customer.full_name}
+Currency Symbol: {currency_symbol}
+Preferred Language: {lang_name}
 
 Monthly Salary:
-${monthly_salary:,.2f}
+{currency_symbol}{monthly_salary:,.2f}
 
 Annual Salary:
-${annual_salary:,.2f}
+{currency_symbol}{annual_salary:,.2f}
 
 IMPORTANT SALARY RULE:
 The salary value stored in the database is MONTHLY salary.
-
-Always describe ${monthly_salary:,.2f} as the customer's MONTHLY salary.
-
-Never describe ${monthly_salary:,.2f} as the annual salary.
-
-The customer's annual salary is ${annual_salary:,.2f}.
+Always describe {currency_symbol}{monthly_salary:,.2f} as the customer's MONTHLY salary.
+Never describe {currency_symbol}{monthly_salary:,.2f} as the annual salary.
+The customer's annual salary is {currency_symbol}{annual_salary:,.2f}.
 
 CURRENT FINANCIAL POSITION
 --------------------------
 Current Account Balance:
-${current_balance:,.2f}
+{currency_symbol}{current_balance:,.2f}
 
 Savings:
-${savings:,.2f}
+{currency_symbol}{savings:,.2f}
 
 Financial Health Score:
 {health["financial_health_score"]}
@@ -142,11 +156,11 @@ CUSTOMER QUESTION
 
 INSTRUCTIONS
 ------------
-Act as an experienced banking financial advisor.
+1. Act as a trusted, warm, and highly experienced banking financial advisor.
+2. Answer the customer's question directly and naturally using their real numbers.
+3. Use the currency symbol '{currency_symbol}' for all amounts. Never switch to '$' if currency is '{currency_symbol}'.
+4. LANGUAGE REQUIREMENT: You MUST answer in {lang_name}. If {lang_name} is Hindi, respond in fluent Hindi. If English, respond in English. If bilingual Hinglish question, respond in friendly, professional Hinglish.
 
-Answer the customer's question directly and naturally.
-
-Use the customer's actual financial information when giving advice.
 
 IMPORTANT OFFER RULES:
 

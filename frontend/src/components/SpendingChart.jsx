@@ -10,30 +10,37 @@ import {
   CartesianGrid,
 } from "recharts";
 
-export default function SpendingChart() {
+import { t } from "../utils/i18n";
+
+export default function SpendingChart({
+  customerId = 1,
+  currencySymbol = "$",
+  lang = "en",
+}) {
   const [data, setData] = useState([]);
 
   useEffect(() => {
-    fetch(`${API_BASE}/spending-chart`)
+    fetch(`${API_BASE}/spending-chart?customer_id=${customerId}`)
       .then((res) => res.json())
       .then((result) => {
-        setData(result);
+        setData(Array.isArray(result) ? result : []);
       })
       .catch(console.error);
-  }, []);
+  }, [customerId]);
 
   return (
     <div className="mt-10 rounded-2xl border border-slate-800 bg-slate-900 p-6">
 
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold">
-          📈 Monthly Spending Trend
+          📈 {t("monthlySpendingTrend", lang)}
         </h2>
 
         <span className="text-cyan-400 text-sm">
-          Live Data
+          {t("liveData", lang)}
         </span>
       </div>
+
 
       <div className="h-80">
 

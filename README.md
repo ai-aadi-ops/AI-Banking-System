@@ -479,25 +479,90 @@ http://localhost:8000/docs
 
 ---
 
-# 📡 API Endpoints
+---
 
-| Method | Endpoint |
-|---------|----------|
-| GET | /dashboard |
-| GET | /transactions |
-| GET | /spending-chart |
-| GET | /ai/financial-health/1 |
+# 🌟 New Multi-User & Statement Upload Architecture
+
+### 1. 👥 Multi-User Account Creation & Complete Database Isolation
+- **Custom User Registration (`/register`)**: New users can register with their own full name, email, country, preferred language, and native currency.
+- **Isolated Databases**: Unlike the default demo (Robert Wilson), every new user has completely isolated transactions, accounts, and insights. Robert Wilson's USD `$20,000` data is never mixed or exposed.
+- **Password Management (`/forgot-password`)**: Dedicated password recovery page to reset credentials securely.
+- **Demo Account**: Instant 1-click login for the classic Robert Wilson demo (`robert.wilson@demo.com`).
+
+### 2. 📑 Universal Bank Statement Ingestion (`/upload-statement`)
+Users can upload their real-world or mock bank statements directly to build their personalized dashboard:
+- **PDF Statements**: Vector and text stream extraction via `pypdf` with Gemini Multimodal AI fallback for scanned PDFs.
+- **Excel & CSV Spreadsheets**: Automatic column header mapping (Date, Description, Debit, Credit, Balance) via `openpyxl` and Python `csv`.
+- **Images / Screenshots**: High-accuracy vision OCR via Google Gemini Multimodal Vision AI (`google-genai`).
+- **1-Click Sample Generator**: Instant demo statement generation with authentic transactions in the user's selected native currency (`₹`, `$`, `€`, `£`, etc.).
+
+### 3. 🌐 Multilingual Indian Language & Currency System
+- **10 Supported Languages**: English, हिन्दी (Hindi), বাংলা (Bengali), తెలుగు (Telugu), मराठी (Marathi), தமிழ் (Tamil), ગુજરાતી (Gujarati), ಕನ್ನಡ (Kannada), മലയാളം (Malayalam), ਪੰਜਾਬੀ (Punjabi).
+- **AI Localized Insights**: The AI Advisor answers fluently in the user's selected Indian language with their specific balance and transaction history.
+- **Dynamic Currency Formatting**: Native number formatters with Lakhs/Crores grouping for Indian Rupees (`₹2,92,560.00`) and standard international notation for USD/EUR.
+
+### 4. 🔒 Privacy & Ephemeral Data Controls
+- **Page Reload Reset (Ephemeral Mode)**: When a logged-in user refreshes their dashboard (`F5`/reload), their uploaded bank statement is cleanly wiped from the view and they are guided back to the upload screen with a localized alert.
+- **Clear Data Button**: A dedicated button on the dashboard header allows users to instantly wipe their uploaded statement records and transactions at any time.
 
 ---
 
-# ☁ Deployment
+# 📡 API Endpoints
 
-The application is deployed on
+### 🔐 Authentication
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/auth/register` | Register a new user with country, language & currency |
+| `POST` | `/auth/login` | Authenticate user or 1-click Demo User |
+| `POST` | `/auth/forgot-password` | Update/reset user password |
+| `GET` | `/auth/me` | Fetch active user profile |
 
-- Google Cloud Platform
-- Docker
-- Docker Compose
-- PostgreSQL
+### 📑 Statement Management
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/statements/upload` | Ingest PDF, Excel/CSV, or Image/Screenshot bank statement |
+| `POST` | `/statements/sample` | Load 1-click authentic demo statement in user's currency |
+| `POST` | `/statements/clear` | Clear uploaded statement and transaction history |
+
+### 📊 Dashboard & Analytics (Scoped by `customer_id`)
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/dashboard?customer_id=N` | Real-time balance, income, expenses, savings & health score |
+| `GET` | `/transactions?customer_id=N` | Filtered list of user transactions with categories |
+| `GET` | `/spending-chart?customer_id=N`| Monthly debit breakdown for visual chart |
+| `GET` | `/ai/financial-health/{id}` | Detailed financial health metrics (0-100) |
+| `POST` | `/ai/chat` | Multilingual AI Advisor queries with statement context |
+| `GET` | `/seed` | Auto-seed Robert Wilson demo dataset |
+
+---
+
+# ☁ Render Deployment
+
+The backend and frontend are configured for zero-downtime deployment on Render:
+
+| Service | Live URL | Platform |
+|---|---|---|
+| 🖥️ **Frontend Dashboard** | [https://ai-banking-system-1-pdow.onrender.com](https://ai-banking-system-1-pdow.onrender.com) | Render Static Site |
+| ⚙️ **Backend API** | [https://ai-banking-system-3gzg.onrender.com](https://ai-banking-system-3gzg.onrender.com) | Render Web Service (FastAPI) |
+| 📑 **Interactive Swagger Docs** | [https://ai-banking-system-3gzg.onrender.com/docs](https://ai-banking-system-3gzg.onrender.com/docs) | OpenAPI Docs |
+
+### 🚀 Running Locally
+
+#### 1. Backend
+```bash
+cd backend
+python -m venv venv
+venv\Scripts\activate       # On Windows
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+```
+
+#### 2. Frontend
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
 ---
 

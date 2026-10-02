@@ -190,7 +190,10 @@ def seed_database(db: Session, force: bool = False):
             phone="+1-555-0199",
             salary=6500.00,
             customer_since=date(2023, 1, 15),
-            kyc_status="VERIFIED"
+            kyc_status="VERIFIED",
+            country="United States",
+            currency_code="USD",
+            currency_symbol="$",
         )
         db.add(customer)
         db.flush()
@@ -206,6 +209,7 @@ def seed_database(db: Session, force: bool = False):
             balance=20000.00,
             savings=5000.00,
             monthly_salary=6500.00,
+            currency_symbol="$",
             status="ACTIVE"
         )
         db.add(account)
@@ -227,18 +231,26 @@ def seed_database(db: Session, force: bool = False):
         db.flush()
 
     # 5. Seed User for auth/login
-    user = db.query(User).filter(User.email == "robert.wilson@demo.com").first()
+    user = db.query(User).filter(User.email.in_(["robert.wilson@demo.com", "robert.wilson@apexbank.com"])).first()
     if not user:
-        user = User(
-            id=1,
+        id_1_user = db.query(User).filter(User.id == 1).first()
+        user_kwargs = dict(
             full_name="Robert Wilson",
             email="robert.wilson@demo.com",
             password_hash="demo_password_hash_2026",
             role="customer",
+            country="United States",
+            preferred_language="en",
+            currency_code="USD",
+            currency_symbol="$",
             is_active="true"
         )
+        if not id_1_user:
+            user_kwargs["id"] = 1
+        user = User(**user_kwargs)
         db.add(user)
         db.flush()
+
 
     # 6. Seed Bank Transactions
     existing_txns = db.query(Transaction).filter(Transaction.customer_id == 1).count()
@@ -282,20 +294,15 @@ def seed_database(db: Session, force: bool = False):
 
 
 def seed_database_if_empty(db: Session):
-    """Helper called on application startup to ensure tables are never left empty."""
+    """Helper called on application startup to ensure tables and Robert Wilson demo data exist."""
     try:
-        count = db.query(Customer).count()
-        if count == 0:
-            print("Database is empty. Automatically seeding demo banking data...")
-            result = seed_database(db, force=False)
-            print(f"Auto-seeding complete: {result.get('message')}, Transactions: {result.get('transactions_seeded')}")
-        else:
-            # Check if account exists
-            acc_count = db.query(Account).count()
-            txn_count = db.query(Transaction).count()
-            if acc_count == 0 or txn_count == 0:
-                print("Missing account or transactions. Running seeder...")
-                seed_database(db, force=False)
+        rw_cust = db.query(Customer).filter(Customer.customer_id == 1).first()
+        rw_user = db.query(User).filter(User.email.in_(["robert.wilson@demo.com", "robert.wilson@apexbank.com"])).first()
+        rw_acc = db.query(Account).filter(Account.customer_id == 1).first()
+
+        if not rw_cust or not rw_user or not rw_acc:
+            print("Demo data incomplete. Running seeder...")
+            seed_database(db, force=False)
     except Exception as e:
         print(f"Auto-seeding warning/error: {e}")
         try:

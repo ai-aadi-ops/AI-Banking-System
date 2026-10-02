@@ -1,82 +1,60 @@
 import { API_BASE } from "../config";
+import { formatCurrency, t } from "../utils/i18n";
 import {
   Wallet,
   ArrowUpCircle,
   ArrowDownCircle,
   PiggyBank,
 } from "lucide-react";
-
 import { useEffect, useState } from "react";
 
-export default function DashboardCards() {
+export default function DashboardCards({
+  customerId = 1,
+  currencySymbol = "$",
+  currencyCode = "USD",
+  lang = "en",
+}) {
   const [dashboard, setDashboard] = useState(null);
 
-  const [cards, setCards] = useState([
+  useEffect(() => {
+    fetch(`${API_BASE}/dashboard?customer_id=${customerId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        setDashboard(data);
+      })
+      .catch(console.error);
+  }, [customerId]);
+
+  const cards = [
     {
-      title: "Total Balance",
-      value: "$0",
+      title: t("totalBalance", lang),
+      value: dashboard ? formatCurrency(dashboard.balance, dashboard.currency_symbol || currencySymbol, currencyCode) : formatCurrency(0, currencySymbol, currencyCode),
       icon: Wallet,
       color: "text-cyan-400",
     },
     {
-      title: "Monthly Income",
-      value: "$0",
+      title: t("monthlyIncome", lang),
+      value: dashboard ? formatCurrency(dashboard.income, dashboard.currency_symbol || currencySymbol, currencyCode) : formatCurrency(0, currencySymbol, currencyCode),
       icon: ArrowUpCircle,
       color: "text-green-400",
     },
     {
-      title: "Monthly Expenses",
-      value: "$0",
+      title: t("monthlyExpenses", lang),
+      value: dashboard ? formatCurrency(dashboard.expenses, dashboard.currency_symbol || currencySymbol, currencyCode) : formatCurrency(0, currencySymbol, currencyCode),
       icon: ArrowDownCircle,
       color: "text-red-400",
     },
     {
-      title: "Savings",
-      value: "$0",
+      title: t("savings", lang),
+      value: dashboard ? formatCurrency(dashboard.savings, dashboard.currency_symbol || currencySymbol, currencyCode) : formatCurrency(0, currencySymbol, currencyCode),
       icon: PiggyBank,
       color: "text-yellow-400",
     },
-  ]);
-
-  useEffect(() => {
-    fetch(`${API_BASE}/dashboard`)
-      .then((res) => res.json())
-      .then((data) => {
-        setDashboard(data);
-
-        setCards([
-          {
-            title: "Total Balance",
-            value: `$${data.balance.toLocaleString()}`,
-            icon: Wallet,
-            color: "text-cyan-400",
-          },
-          {
-            title: "Monthly Income",
-            value: `$${data.income.toLocaleString()}`,
-            icon: ArrowUpCircle,
-            color: "text-green-400",
-          },
-          {
-            title: "Monthly Expenses",
-            value: `$${data.expenses.toLocaleString()}`,
-            icon: ArrowDownCircle,
-            color: "text-red-400",
-          },
-          {
-            title: "Savings",
-            value: `$${data.savings.toLocaleString()}`,
-            icon: PiggyBank,
-            color: "text-yellow-400",
-          },
-        ]);
-      })
-      .catch(console.error);
-  }, []);
+  ];
 
   return (
     <>
-      <div className="grid gap-6 mt-10 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-6 mt-6 md:grid-cols-2 xl:grid-cols-4">
         {cards.map((card, index) => {
           const Icon = card.icon;
 
@@ -87,14 +65,14 @@ export default function DashboardCards() {
             >
               <div className="flex justify-between items-center">
                 <div>
-                  <p className="text-slate-400">{card.title}</p>
+                  <p className="text-slate-400 text-sm">{card.title}</p>
 
-                  <h2 className="text-3xl font-bold mt-2">
+                  <h2 className="text-2xl md:text-3xl font-bold mt-2 text-white">
                     {card.value}
                   </h2>
                 </div>
 
-                <Icon className={card.color} size={38} />
+                <Icon className={card.color} size={36} />
               </div>
             </div>
           );
@@ -103,35 +81,38 @@ export default function DashboardCards() {
 
       {dashboard && (
         <div className="grid md:grid-cols-2 gap-6 mt-8">
-          <div className="bg-slate-900 border border-cyan-700 rounded-2xl p-6">
-            <h2 className="text-2xl font-bold text-cyan-400">
-              📊 Financial Health
+          <div className="bg-slate-900 border border-cyan-800/60 rounded-2xl p-6">
+            <h2 className="text-2xl font-bold text-cyan-400 flex items-center gap-2">
+              <span>📊</span>
+              <span>{t("financialHealth", lang)}</span>
             </h2>
 
-            <div className="text-6xl font-bold text-green-400 mt-6">
+            <div className="text-6xl font-extrabold text-green-400 mt-6">
               {dashboard.health_score}
+              <span className="text-xl text-slate-500 font-normal">/100</span>
             </div>
 
-            <p className="text-xl mt-2">
+            <p className="text-xl mt-2 font-medium text-slate-200">
               {dashboard.health_status}
             </p>
 
-            <div className="w-full h-4 bg-slate-700 rounded-full mt-6">
+            <div className="w-full h-4 bg-slate-800 rounded-full mt-6 overflow-hidden">
               <div
-                className="bg-green-500 h-4 rounded-full"
+                className="bg-gradient-to-r from-green-500 to-cyan-400 h-4 rounded-full transition-all duration-500"
                 style={{
-                  width: `${dashboard.health_score}%`,
+                  width: `${Math.min(100, Math.max(5, dashboard.health_score))}%`,
                 }}
               />
             </div>
           </div>
 
-          <div className="bg-slate-900 border border-cyan-700 rounded-2xl p-6">
-            <h2 className="text-2xl font-bold text-cyan-400">
-              🤖 AI Insights
+          <div className="bg-slate-900 border border-cyan-800/60 rounded-2xl p-6">
+            <h2 className="text-2xl font-bold text-cyan-400 flex items-center gap-2">
+              <span>🤖</span>
+              <span>{t("aiInsights", lang)}</span>
             </h2>
 
-            <div className="space-y-4 mt-6 text-lg">
+            <div className="space-y-4 mt-6 text-base md:text-lg">
               <p>✅ {dashboard.insights.balance}</p>
               <p>📈 {dashboard.insights.income}</p>
               <p>⚠ {dashboard.insights.expenses}</p>
@@ -143,3 +124,4 @@ export default function DashboardCards() {
     </>
   );
 }
+

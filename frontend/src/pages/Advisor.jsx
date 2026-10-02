@@ -1,21 +1,43 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { API_BASE } from "../config";
 import ReactMarkdown from "react-markdown";
 import { useNavigate } from "react-router-dom";
+import { formatCurrency, t } from "../utils/i18n";
 
 export default function Advisor() {
   const navigate = useNavigate();
+
+  const [user, setUser] = useState(null);
+  const [lang, setLang] = useState("en");
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [offer, setOffer] = useState(null);
   const [accepting, setAccepting] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const suggestions = [
-    "Can I afford an iPhone?",
-    "How can I save more money?",
+  useEffect(() => {
+    const storedUser = localStorage.getItem("user");
+    if (storedUser) {
+      const parsed = JSON.parse(storedUser);
+      setUser(parsed);
+      setLang(localStorage.getItem("preferred_language") || parsed.preferred_language || "en");
+    }
+  }, []);
+
+  const currencySymbol = user?.currency_symbol || "$";
+  const currencyCode = user?.currency_code || "USD";
+  const customerId = user?.customer_id || user?.id || 1;
+
+  const suggestions = lang === "hi" ? [
+    `क्या मैं इस महीने ${currencySymbol}80,000 का स्मार्टफोन खरीद सकता हूँ?`,
+    "मैं अपने बैंक खाते से अधिक पैसे कैसे बचा सकता हूँ?",
+    "क्या मुझे व्यक्तिगत ऋण (Personal Loan) लेना चाहिए?",
+    "मेरी वित्तीय स्थिति के अनुसार मुझे निवेश सलाह दें।",
+  ] : [
+    `Can I afford an iPhone worth ${currencySymbol}1,200?`,
+    "How can I save more money every month?",
     "Should I apply for a personal loan?",
-    "Give me investment advice.",
+    "Give me investment advice based on my balance.",
   ];
 
   async function askAI(q = question) {
@@ -31,8 +53,9 @@ export default function Advisor() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          customer_id: 1,
+          customer_id: customerId,
           question: q,
+          language: lang,
         }),
       });
 
@@ -47,6 +70,7 @@ export default function Advisor() {
 
     setLoading(false);
   }
+
 
   async function acceptOffer() {
     if (!offer) return;
@@ -264,7 +288,7 @@ export default function Advisor() {
                   <div style={offerStatStyle}>
                     <p style={offerLabelStyle}>Amount</p>
                     <h2 style={offerValueStyle}>
-                      ${Number(offer.amount).toLocaleString()}
+                      {formatCurrency(offer.amount, currencySymbol, currencyCode)}
                     </h2>
                   </div>
 
@@ -281,11 +305,12 @@ export default function Advisor() {
                     <div style={offerStatStyle}>
                       <p style={offerLabelStyle}>Monthly Deduction</p>
                       <h2 style={offerValueStyle}>
-                        ${Number(offer.monthly_emi).toLocaleString()}
+                        {formatCurrency(offer.monthly_emi, currencySymbol, currencyCode)}
                       </h2>
                     </div>
                   )}
                 </div>
+
 
                 <button
                   onClick={acceptOffer}

@@ -22,46 +22,76 @@ def generate_local_advisor_fallback(prompt: str) -> str:
     """Intelligent rule-based fallback response if Gemini API is unreachable or key is invalid."""
     p = prompt.lower()
 
+    # Extract name and currency from prompt if available
+    customer_name = "there"
+    currency = "$"
+    if "customer name:" in p:
+        try:
+            name_lines = [l for l in prompt.splitlines() if "customer name:" in l.lower()]
+            if name_lines:
+                customer_name = name_lines[0].split(":")[-1].strip()
+        except Exception:
+            pass
+    if "currency symbol:" in p:
+        try:
+            sym_lines = [l for l in prompt.splitlines() if "currency symbol:" in l.lower()]
+            if sym_lines:
+                currency = sym_lines[0].split(":")[-1].strip()
+        except Exception:
+            pass
+    elif "₹" in prompt:
+        currency = "₹"
+
+    # Extract balance if available
+    bal = f"{currency}20,000"
+    if "current account balance:" in p:
+        try:
+            bal_lines = [l for l in prompt.splitlines() if "current account balance:" in l.lower()]
+            if bal_lines:
+                bal = bal_lines[0].split(":")[-1].strip()
+        except Exception:
+            pass
+
     if "iphone" in p or "phone" in p:
         return (
-            "Hello Robert,\n\n"
-            "Looking at your current financial position with a balance of $20,000 and monthly salary of $6,500, "
-            "purchasing a new smartphone or iPhone is affordable within your available funds. However, because your recent "
-            "monthly expenses have been elevated, consider opting for a 0% interest plan or ensuring your emergency savings "
-            "cushion of at least $5,000 remains untouched."
+            f"Hello {customer_name},\n\n"
+            f"Reviewing your current financial position with a balance of {bal}, "
+            f"purchasing a new smartphone or gadget should be evaluated against your recurring expenses. "
+            f"If your monthly cash flow is positive, consider a 0% interest plan while ensuring your emergency "
+            f"savings buffer remains intact."
         )
     elif "save" in p or "saving" in p:
         return (
-            "Hello Robert,\n\n"
-            "Based on your transaction analysis, here are the best ways to increase your savings:\n\n"
-            "1. **Optimize Recurring Outflows**: Rent ($1,800/mo) and utilities are your largest fixed commitments. Ensuring energy efficiency can save $30–$50 monthly.\n"
-            "2. **Manage Dining & Coffee**: Regular coffee and takeout spending adds up. Preparing lunch just two extra days per week can save over $150 monthly.\n"
-            "3. **Automate Savings First**: Automatically transfer 15–20% of your $6,500 paycheck to your savings account on the 1st of every month.\n"
-            "4. **High-Yield Cash Management**: Ensure your $20,000 balance earns interest through a high-yield savings account or money market fund."
+            f"Hello {customer_name},\n\n"
+            f"Based on your transaction analysis, here are key ways to boost your savings:\n\n"
+            f"1. **Optimize Fixed Recurring Costs**: Rent and utilities typically account for 40-50% of monthly spending. Keep these in check.\n"
+            f"2. **Monitor Discretionary Expenses**: Dining, coffee, and entertainment subscriptions add up fast. Setting a weekly spending cap can save up to 20%.\n"
+            f"3. **Automate Savings First**: Transfer 15–20% of your income to a designated savings account on payday.\n"
+            f"4. **High-Yield Liquid Funds**: Keep emergency reserves in liquid interest-bearing accounts for optimal safety."
         )
     elif "loan" in p or "borrow" in p or "emi" in p:
         return (
-            "Hello Robert,\n\n"
-            "With a monthly salary of $6,500 and verified KYC status, you have strong creditworthiness. "
-            "If you need financing for a major purchase, ensure the monthly EMI remains below 30% of your take-home pay (~$1,950/mo) "
-            "so you retain sufficient cash flow for everyday expenses and emergency reserves."
+            f"Hello {customer_name},\n\n"
+            f"Before taking a loan or EMI commitment, ensure that your total monthly EMI obligations stay below "
+            f"30% of your net monthly income. This preserves safe cash flow for unforeseen emergencies."
         )
     elif "invest" in p:
         return (
-            "Hello Robert,\n\n"
-            "With $20,000 in liquid capital and $5,000 in savings, your fundamentals are solid. Recommended portfolio allocation:\n\n"
-            "- **Emergency Buffer**: Keep 3 months of basic expenses ($8,000) in high-yield liquid savings.\n"
-            "- **Diversified Core**: Invest 60% of monthly surplus in low-cost broad market index funds (e.g. S&P 500).\n"
-            "- **Fixed Income / Debt**: 20% in treasury securities or high-grade bonds for capital preservation.\n"
-            "- **Opportunistic / Growth**: 20% in growth equities according to your risk tolerance."
+            f"Hello {customer_name},\n\n"
+            f"With your liquid capital ({bal}), a prudent allocation strategy is:\n\n"
+            f"- **Emergency Buffer**: 3 to 6 months of expenses in safe liquid savings.\n"
+            f"- **Diversified Index Funds**: 50–60% of monthly surplus in low-cost broad index funds.\n"
+            f"- **Fixed Income**: 20–30% in high-grade deposits or bonds for capital preservation.\n"
+            f"- **Discretionary / Growth**: 10–20% according to your risk tolerance."
         )
     else:
         return (
-            "Hello Robert,\n\n"
-            "As your AI Financial Advisor, I have reviewed your accounts. You have an active balance of $20,000, "
-            "a monthly salary of $6,500, and $5,000 in designated savings. While your cash flow is steady, "
-            "focusing on tracking discretionary expenses will help you maximize your wealth accumulation."
+            f"Hello {customer_name},\n\n"
+            f"As your AI Financial Advisor, I have reviewed your bank account. Your current balance stands at {bal}. "
+            f"Your cash flow and spending patterns indicate steady activity. Tracking recurring bills and maintaining "
+            f"a consistent savings discipline will help achieve your financial goals."
         )
+
 
 
 def ask_gemini(prompt: str) -> str:

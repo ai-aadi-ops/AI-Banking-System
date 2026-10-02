@@ -2,15 +2,22 @@ import { API_BASE } from "../config";
 import { useEffect, useState } from "react";
 import { PieChart } from "lucide-react";
 
-export default function AISpendingInsights() {
+import { formatCurrency, t } from "../utils/i18n";
+
+export default function AISpendingInsights({
+  customerId = 1,
+  currencySymbol = "$",
+  currencyCode = "USD",
+  lang = "en",
+}) {
   const [data, setData] = useState(null);
 
   useEffect(() => {
-    fetch(`${API_BASE}/ai/analyze/1`)
+    fetch(`${API_BASE}/ai/analyze/${customerId}`)
       .then((res) => res.json())
       .then(setData)
       .catch(console.error);
-  }, []);
+  }, [customerId]);
 
   if (!data) return null;
 
@@ -19,7 +26,7 @@ export default function AISpendingInsights() {
       <div className="flex items-center gap-3">
         <PieChart className="text-cyan-400" size={30} />
         <h2 className="text-3xl font-bold">
-          AI Spending Insights
+          {t("aiSpendingInsights", lang)}
         </h2>
       </div>
 
@@ -28,57 +35,62 @@ export default function AISpendingInsights() {
         <div>
           <p className="text-slate-400">Total Spent</p>
           <h2 className="text-4xl font-bold mt-2">
-            ${data.total_spent}
+            {formatCurrency(data.total_spent || 0, currencySymbol, currencyCode)}
           </h2>
 
           <div className="mt-6">
             <p className="text-slate-400">
-              Highest Spending Category
+              {t("highestCategory", lang)}
             </p>
 
             <h3 className="text-2xl font-semibold text-cyan-400">
-              {data.highest_spending_category}
+              {data.highest_spending_category || "None"}
             </h3>
 
             <p className="text-slate-300">
-              ${data.highest_category_amount}
+              {formatCurrency(data.highest_category_amount || 0, currencySymbol, currencyCode)}
             </p>
           </div>
 
           <div className="mt-6">
             <p className="text-slate-400">
-              Favorite Merchant
+              {t("favoriteMerchant", lang)}
             </p>
 
             <h3 className="text-2xl font-semibold text-green-400">
-              {data.favorite_merchant}
+              {data.favorite_merchant || "None"}
             </h3>
 
             <p className="text-slate-300">
-              ${data.merchant_spending}
+              {formatCurrency(data.merchant_spending || 0, currencySymbol, currencyCode)}
             </p>
           </div>
         </div>
 
         <div>
           <h3 className="text-xl font-bold mb-4">
-            Category Breakdown
+            {t("categoryBreakdown", lang)}
           </h3>
 
-          {Object.entries(data.category_breakdown).map(([cat, amt]) => (
+          {Object.entries(data.category_breakdown || {}).map(([cat, amt]) => (
             <div
               key={cat}
-              className="flex justify-between border-b border-slate-700 py-3"
+              className="flex justify-between border-b border-slate-700 py-3 text-sm md:text-base"
             >
               <span>{cat}</span>
-              <span className="font-semibold">
-                ${amt}
+              <span className="font-semibold text-cyan-300">
+                {formatCurrency(amt, currencySymbol, currencyCode)}
               </span>
             </div>
           ))}
+
+          {(!data.category_breakdown || Object.keys(data.category_breakdown).length === 0) && (
+            <p className="text-slate-400 text-sm py-4">No category spending data available yet.</p>
+          )}
         </div>
 
       </div>
     </div>
   );
 }
+

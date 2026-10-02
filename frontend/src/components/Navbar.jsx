@@ -11,15 +11,22 @@ export default function Navbar() {
         </h1>
       </div>
 
-      <div className="flex gap-4">
+      <div className="flex gap-3">
+        <Link
+          to="/register"
+          className="flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-2 font-semibold text-slate-300 transition hover:border-cyan-500 hover:text-white text-sm"
+        >
+          Create Account
+        </Link>
         <Link
           to="/login"
-          className="flex items-center gap-2 rounded-xl bg-cyan-500 px-5 py-2 font-semibold text-white transition hover:bg-cyan-600"
+          className="flex items-center gap-2 rounded-xl bg-cyan-500 px-5 py-2 font-semibold text-white transition hover:bg-cyan-600 text-sm"
         >
-          <LogIn size={18} />
+          <LogIn size={16} />
           Login
         </Link>
       </div>
     </nav>
+
   );
 }

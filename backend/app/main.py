@@ -1,25 +1,15 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, UploadFile, File, Form, HTTPException, Body
 from sqlalchemy.orm import Session
-from app.ai.spending_analyzer import analyze_transactions
-from app.database import get_db
-from app.ai.recommendation_engine import generate_recommendation
-from app.ai.spending_analyzer import analyze_transactions
-from app.ai.financial_health import calculate_financial_health
-from app.ai.purchase_decision import purchase_decision
-from app.ai.offer_engine import build_offer
-from app.services.purchase_service import PurchaseService
-from app.services.purchase_service import PurchaseService
-from app.ai.financial_advisor import generate_financial_advice
-from app.ai.chat_service import chat_with_ai
-from app.database import engine
-from app.models import Base
-from sqlalchemy import func
-from app.models import Account, Transaction
-from fastapi.middleware.cors import CORSMiddleware
-from app.ai.recommendation_engine import generate_recommendation
-from fastapi import Body
-from app.ai.offer_engine import build_offer
+from sqlalchemy import func, text
+import hashlib
+import secrets
+import random
+from datetime import datetime, date, timedelta
+from typing import Optional
+
+from app.database import get_db, engine
 from app.models import (
+    Base,
     Customer,
     Account,
     Card,
@@ -28,9 +18,24 @@ from app.models import (
     Loan,
     User,
 )
+from app.ai.spending_analyzer import analyze_transactions
+from app.ai.financial_health import calculate_financial_health
+from app.ai.purchase_decision import purchase_decision
+from app.ai.offer_engine import build_offer
+from app.ai.recommendation_engine import generate_recommendation
+from app.ai.financial_advisor import generate_financial_advice
+from app.ai.chat_service import chat_with_ai
+from app.services.purchase_service import PurchaseService
+from app.services.statement_parser import (
+    parse_pdf_statement,
+    parse_csv_or_excel,
+    parse_image_statement,
+    generate_sample_statement,
+)
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
-    title="AI Banking Demo",
+    title="AI Banking Platform",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -43,6 +48,51 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    hashed = hashlib.sha256((salt + password).encode()).hexdigest()
+    return f"{salt}:{hashed}"
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    if not hashed_password:
+        return False
+    if ":" in hashed_password:
+        salt, h = hashed_password.split(":", 1)
+        return hashlib.sha256((salt + plain_password).encode()).hexdigest() == h
+    return plain_password == hashed_password or hashed_password == "demo_password_hash_2026"
+
+
+def ensure_schema_columns(db: Session):
+    """Safely migrate any missing columns in existing PostgreSQL or SQLite databases."""
+    columns_to_add = [
+        ("users", "country", "VARCHAR(50) DEFAULT 'India'"),
+        ("users", "preferred_language", "VARCHAR(20) DEFAULT 'en'"),
+        ("users", "currency_code", "VARCHAR(10) DEFAULT 'INR'"),
+        ("users", "currency_symbol", "VARCHAR(10) DEFAULT '₹'"),
+        ("accounts", "currency_symbol", "VARCHAR(10) DEFAULT '₹'"),
+        ("customers", "country", "VARCHAR(50) DEFAULT 'India'"),
+        ("customers", "currency_code", "VARCHAR(10) DEFAULT 'INR'"),
+        ("customers", "currency_symbol", "VARCHAR(10) DEFAULT '₹'"),
+    ]
+    for table, col, col_def in columns_to_add:
+        try:
+            db.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {col_def};"))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
+try:
+    Base.metadata.create_all(bind=engine)
+    from app.database import SessionLocal
+    with SessionLocal() as _db:
+        ensure_schema_columns(_db)
+except Exception as _e:
+    print(f"Table initialization note: {_e}")
+
+
 @app.on_event("startup")
 def startup():
     Base.metadata.create_all(bind=engine)
@@ -50,9 +100,12 @@ def startup():
         from app.database import SessionLocal
         from app.seeder import seed_database_if_empty
         with SessionLocal() as db:
+            ensure_schema_columns(db)
             seed_database_if_empty(db)
     except Exception as e:
         print(f"Startup seeding error: {e}")
+
+
 
 @app.get("/")
 def home():
@@ -67,34 +120,473 @@ def trigger_seed(force: bool = False, db: Session = Depends(get_db)):
     return seed_database(db, force=force)
 
 
+# -------------------------------------------------------------
+# AUTHENTICATION ROUTES
+# -------------------------------------------------------------
+
+@app.post("/auth/register")
+def register_user(body: dict, db: Session = Depends(get_db)):
+    email = body.get("email", "").strip().lower()
+    full_name = body.get("full_name", "").strip()
+    password = body.get("password", "")
+    country = body.get("country", "India")
+    preferred_language = body.get("preferred_language", "en")
+    currency_code = body.get("currency_code", "INR")
+    currency_symbol = body.get("currency_symbol", "₹")
+
+    if not email or not password or not full_name:
+        raise HTTPException(status_code=400, detail="Full name, email and password are required")
+
+    from app.seeder import seed_database_if_empty
+    seed_database_if_empty(db)
+
+    existing_user = db.query(User).filter(User.email == email).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="An account with this email already exists")
+
+    pwd_hash = hash_password(password)
+
+    new_user = User(
+        full_name=full_name,
+        email=email,
+        password_hash=pwd_hash,
+        role="customer",
+        country=country,
+        preferred_language=preferred_language,
+        currency_code=currency_code,
+        currency_symbol=currency_symbol,
+        is_active="true"
+    )
+    db.add(new_user)
+    db.flush()
+
+    customer = Customer(
+        customer_id=new_user.id,
+        customer_code=f"CUST{new_user.id:04d}",
+        full_name=full_name,
+        email=email,
+        phone="+91-9876543210" if country == "India" else "+1-555-0100",
+        salary=0.0,
+        customer_since=date.today(),
+        kyc_status="VERIFIED",
+        country=country,
+        currency_code=currency_code,
+        currency_symbol=currency_symbol,
+    )
+    db.add(customer)
+
+    account = Account(
+        account_id=new_user.id,
+        customer_id=new_user.id,
+        account_number=f"ACC-{new_user.id:04d}8901",
+        account_type="Savings",
+        balance=0.0,
+        savings=0.0,
+        monthly_salary=0.0,
+        currency_symbol=currency_symbol,
+        status="ACTIVE"
+    )
+    db.add(account)
+
+    card = Card(
+        card_id=new_user.id,
+        customer_id=new_user.id,
+        card_number=f"4532-{random.randint(1000, 9999)}-{random.randint(1000, 9999)}-{random.randint(1000, 9999)}",
+        expiry_date="12/29",
+        cvv=str(random.randint(100, 999)),
+        card_type="Visa Platinum",
+        status="ACTIVE"
+    )
+    db.add(card)
+
+    db.commit()
+
+    return {
+        "status": "success",
+        "user": {
+            "id": new_user.id,
+            "customer_id": new_user.id,
+            "full_name": new_user.full_name,
+            "email": new_user.email,
+            "country": new_user.country,
+            "preferred_language": new_user.preferred_language,
+            "currency_code": new_user.currency_code,
+            "currency_symbol": new_user.currency_symbol,
+            "is_demo": False
+        },
+        "token": f"token_{new_user.id}_{secrets.token_hex(8)}"
+    }
+
+
+@app.post("/auth/login")
+def login_user(body: dict, db: Session = Depends(get_db)):
+    email = body.get("email", "").strip().lower()
+    password = body.get("password", "")
+
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+
+    # Robert Wilson demo login support
+    if email in ("robert.wilson@demo.com", "robert.wilson@apexbank.com"):
+        user = db.query(User).filter(User.email.in_(["robert.wilson@demo.com", "robert.wilson@apexbank.com"])).first()
+        if not user:
+            from app.seeder import seed_database
+            seed_database(db, force=False)
+            user = db.query(User).filter(User.email.in_(["robert.wilson@demo.com", "robert.wilson@apexbank.com"])).first()
+
+        return {
+            "status": "success",
+            "user": {
+                "id": user.id if user else 1,
+                "customer_id": 1,
+                "full_name": "Robert Wilson",
+                "email": "robert.wilson@demo.com",
+                "country": "United States",
+                "preferred_language": "en",
+                "currency_code": "USD",
+                "currency_symbol": "$",
+                "is_demo": True
+            },
+            "token": "demo_robert_wilson_token"
+        }
+
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    if not verify_password(password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    return {
+        "status": "success",
+        "user": {
+            "id": user.id,
+            "customer_id": user.id,
+            "full_name": user.full_name,
+            "email": user.email,
+            "country": user.country or "India",
+            "preferred_language": user.preferred_language or "en",
+            "currency_code": user.currency_code or "INR",
+            "currency_symbol": user.currency_symbol or "₹",
+            "is_demo": False
+        },
+        "token": f"token_{user.id}_{secrets.token_hex(8)}"
+    }
+
+
+@app.post("/auth/forgot-password")
+def forgot_password(body: dict, db: Session = Depends(get_db)):
+    email = body.get("email", "").strip().lower()
+    new_password = body.get("new_password", "")
+
+    if not email or not new_password:
+        raise HTTPException(status_code=400, detail="Email and new password are required")
+
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="No user found with this email address")
+
+    user.password_hash = hash_password(new_password)
+    db.commit()
+
+    return {
+        "status": "success",
+        "message": "Password updated successfully. You can now log in with your new password."
+    }
+
+
+@app.get("/auth/me")
+def get_current_user_info(customer_id: int = 1, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == customer_id).first()
+    if not user:
+        customer = db.query(Customer).filter(Customer.customer_id == customer_id).first()
+        if customer:
+            return {
+                "id": customer_id,
+                "customer_id": customer_id,
+                "full_name": customer.full_name,
+                "email": customer.email,
+                "country": getattr(customer, "country", "India"),
+                "preferred_language": "en",
+                "currency_code": getattr(customer, "currency_code", "INR"),
+                "currency_symbol": getattr(customer, "currency_symbol", "₹"),
+            }
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {
+        "id": user.id,
+        "customer_id": user.id,
+        "full_name": user.full_name,
+        "email": user.email,
+        "country": user.country or "India",
+        "preferred_language": user.preferred_language or "en",
+        "currency_code": user.currency_code or "INR",
+        "currency_symbol": user.currency_symbol or "₹",
+    }
+
+
+# -------------------------------------------------------------
+# STATEMENT UPLOAD & DATA MANAGEMENT ROUTES
+# -------------------------------------------------------------
+
+@app.post("/statements/upload")
+async def upload_statement(
+    file: UploadFile = File(...),
+    customer_id: int = Form(...),
+    country: str = Form("India"),
+    currency: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+):
+    contents = await file.read()
+    filename = file.filename.lower() if file.filename else "statement.pdf"
+
+    if filename.endswith(".pdf"):
+        data = parse_pdf_statement(contents, country=country)
+    elif filename.endswith((".xlsx", ".xls", ".csv")):
+        data = parse_csv_or_excel(contents, filename, country=country)
+    elif filename.endswith((".png", ".jpg", ".jpeg", ".webp")):
+        mime_type = file.content_type or "image/png"
+        data = parse_image_statement(contents, mime_type, country=country)
+    else:
+        data = generate_sample_statement(currency=currency or "INR", country=country)
+
+    # 1. Update or create Account
+    account = db.query(Account).filter(Account.customer_id == customer_id).first()
+    if not account:
+        account = Account(
+            account_id=customer_id,
+            customer_id=customer_id,
+            account_number=f"ACC-{customer_id:04d}8901",
+            account_type="Savings",
+            balance=data["total_balance"],
+            savings=data["savings"],
+            monthly_salary=data["monthly_income"],
+            currency_symbol=data["currency_symbol"],
+            status="ACTIVE"
+        )
+        db.add(account)
+    else:
+        account.balance = data["total_balance"]
+        account.savings = data["savings"]
+        account.monthly_salary = data["monthly_income"]
+        account.currency_symbol = data["currency_symbol"]
+
+    # 2. Update Customer
+    customer = db.query(Customer).filter(Customer.customer_id == customer_id).first()
+    if customer:
+        customer.salary = data["monthly_income"]
+        customer.currency_code = data["currency_code"]
+        customer.currency_symbol = data["currency_symbol"]
+        customer.country = country
+
+    # 3. Update User
+    user = db.query(User).filter(User.id == customer_id).first()
+    if user:
+        user.currency_code = data["currency_code"]
+        user.currency_symbol = data["currency_symbol"]
+        user.country = country
+
+    # 4. Remove previous statement transactions for this customer
+    db.query(Transaction).filter(Transaction.customer_id == customer_id).delete()
+
+    # 5. Insert newly extracted transactions
+    for t in data["transactions"]:
+        d_val = t.get("transaction_date")
+        if isinstance(d_val, str):
+            try:
+                d_val = datetime.strptime(d_val, "%Y-%m-%d").date()
+            except Exception:
+                d_val = date.today()
+        elif not isinstance(d_val, date):
+            d_val = date.today()
+
+        new_txn = Transaction(
+            customer_id=customer_id,
+            merchant_name=t["merchant_name"],
+            category=t["category"],
+            amount=t["amount"],
+            transaction_type=t["transaction_type"],
+            payment_method=t.get("payment_method", "Card"),
+            transaction_date=d_val,
+            ai_score=t.get("ai_score", "1")
+        )
+        db.add(new_txn)
+
+    db.commit()
+
+    return {
+        "status": "success",
+        "message": f"Successfully parsed and loaded {len(data['transactions'])} transactions from statement.",
+        "currency_code": data["currency_code"],
+        "currency_symbol": data["currency_symbol"],
+        "total_balance": data["total_balance"],
+        "monthly_income": data["monthly_income"],
+        "monthly_expenses": data["monthly_expenses"],
+        "savings": data["savings"],
+        "transactions_count": len(data["transactions"]),
+    }
+
+
+@app.post("/statements/sample")
+def load_sample(
+    body: Optional[dict] = Body(default=None),
+    customer_id: Optional[int] = None,
+    currency: Optional[str] = None,
+    country: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    b = body or {}
+    customer_id = b.get("customer_id") or customer_id or 1
+    currency = b.get("currency") or currency or "INR"
+    country = b.get("country") or country or "India"
+
+    data = generate_sample_statement(currency=currency, country=country)
+
+    account = db.query(Account).filter(Account.customer_id == customer_id).first()
+    if not account:
+        account = Account(
+            account_id=customer_id,
+            customer_id=customer_id,
+            account_number=f"ACC-{customer_id:04d}8901",
+            account_type="Savings",
+            balance=data["total_balance"],
+            savings=data["savings"],
+            monthly_salary=data["monthly_income"],
+            currency_symbol=data["currency_symbol"],
+            status="ACTIVE"
+        )
+        db.add(account)
+    else:
+        account.balance = data["total_balance"]
+        account.savings = data["savings"]
+        account.monthly_salary = data["monthly_income"]
+        account.currency_symbol = data["currency_symbol"]
+
+    customer = db.query(Customer).filter(Customer.customer_id == customer_id).first()
+    if customer:
+        customer.salary = data["monthly_income"]
+        customer.currency_code = data["currency_code"]
+        customer.currency_symbol = data["currency_symbol"]
+        customer.country = country
+
+    user = db.query(User).filter(User.id == customer_id).first()
+    if user:
+        user.currency_code = data["currency_code"]
+        user.currency_symbol = data["currency_symbol"]
+        user.country = country
+
+    db.query(Transaction).filter(Transaction.customer_id == customer_id).delete()
+
+    for t in data["transactions"]:
+        d_val = t.get("transaction_date")
+        if isinstance(d_val, str):
+            try:
+                d_val = datetime.strptime(d_val, "%Y-%m-%d").date()
+            except Exception:
+                d_val = date.today()
+
+        new_txn = Transaction(
+            customer_id=customer_id,
+            merchant_name=t["merchant_name"],
+            category=t["category"],
+            amount=t["amount"],
+            transaction_type=t["transaction_type"],
+            payment_method=t.get("payment_method", "Card"),
+            transaction_date=d_val,
+            ai_score=t.get("ai_score", "1")
+        )
+        db.add(new_txn)
+
+    db.commit()
+
+    return {
+        "status": "success",
+        "message": f"Sample statement ({data['currency_code']}) loaded successfully.",
+        "currency_code": data["currency_code"],
+        "currency_symbol": data["currency_symbol"],
+        "total_balance": data["total_balance"],
+        "monthly_income": data["monthly_income"],
+        "monthly_expenses": data["monthly_expenses"],
+        "savings": data["savings"],
+        "transactions_count": len(data["transactions"]),
+    }
+
+
+@app.post("/statements/clear")
+def clear_statement_data(
+    body: Optional[dict] = Body(default=None),
+    customer_id: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    b = body or {}
+    cid = b.get("customer_id") or customer_id
+    if not cid:
+        raise HTTPException(status_code=400, detail="customer_id is required")
+    customer_id = cid
+
+    # Delete transactions for this customer
+    db.query(Transaction).filter(Transaction.customer_id == customer_id).delete()
+
+    # Reset account balance and savings
+    account = db.query(Account).filter(Account.customer_id == customer_id).first()
+    if account:
+        account.balance = 0.0
+        account.savings = 0.0
+        account.monthly_salary = 0.0
+
+    customer = db.query(Customer).filter(Customer.customer_id == customer_id).first()
+    if customer:
+        customer.salary = 0.0
+
+    db.commit()
+
+    return {
+        "status": "success",
+        "message": "User statement data and transactions cleared successfully."
+    }
+
+
+# -------------------------------------------------------------
+# USER-SCOPED BANKING ROUTES
+# -------------------------------------------------------------
+
 @app.get("/customers")
 def customers(db: Session = Depends(get_db)):
     return db.query(Customer).all()
 
 
 @app.get("/accounts")
-def accounts(db: Session = Depends(get_db)):
+def accounts(customer_id: Optional[int] = None, db: Session = Depends(get_db)):
+    if customer_id:
+        return db.query(Account).filter(Account.customer_id == customer_id).all()
     return db.query(Account).all()
 
 
 @app.get("/cards")
-def cards(db: Session = Depends(get_db)):
+def cards(customer_id: Optional[int] = None, db: Session = Depends(get_db)):
+    if customer_id:
+        return db.query(Card).filter(Card.customer_id == customer_id).all()
     return db.query(Card).all()
 
 
 @app.get("/transactions")
-def transactions(db: Session = Depends(get_db)):
-    return db.query(Transaction).all()
+def transactions(customer_id: int = 1, db: Session = Depends(get_db)):
+    return db.query(Transaction).filter(Transaction.customer_id == customer_id).order_by(Transaction.transaction_date.desc()).all()
 
 
 @app.get("/recommendations")
-def recommendations(db: Session = Depends(get_db)):
+def recommendations(customer_id: Optional[int] = None, db: Session = Depends(get_db)):
+    if customer_id:
+        return db.query(Recommendation).filter(Recommendation.customer_id == customer_id).all()
     return db.query(Recommendation).all()
 
 
 @app.get("/loans")
-def loans(db: Session = Depends(get_db)):
+def loans(customer_id: Optional[int] = None, db: Session = Depends(get_db)):
+    if customer_id:
+        return db.query(Loan).filter(Loan.customer_id == customer_id).all()
     return db.query(Loan).all()
+
 
 @app.get("/ai/analyze/{customer_id}")
 def analyze(customer_id: int,
@@ -307,6 +799,7 @@ def ai_chat(
     db: Session = Depends(get_db)
 ):
     customer_id = body.get("customer_id", 1)
+    language = body.get("language", "en")
 
     customer = (
         db.query(Customer)
@@ -320,20 +813,56 @@ def ai_chat(
         .first()
     )
 
+    user = db.query(User).filter(User.id == customer_id).first()
+    currency_symbol = (
+        getattr(account, "currency_symbol", None) or
+        getattr(customer, "currency_symbol", None) or
+        (user.currency_symbol if user else None) or
+        "₹"
+    )
+    if not language and user and user.preferred_language:
+        language = user.preferred_language
+
     if not customer or not account:
-        from app.seeder import seed_database
-        seed_database(db, force=False)
-        customer = db.query(Customer).filter(Customer.customer_id == customer_id).first()
-        account = db.query(Account).filter(Account.customer_id == customer_id).first()
+        if customer_id == 1:
+            from app.seeder import seed_database
+            seed_database(db, force=False)
+            customer = db.query(Customer).filter(Customer.customer_id == customer_id).first()
+            account = db.query(Account).filter(Account.customer_id == customer_id).first()
+        elif user:
+            customer = Customer(
+                customer_id=user.id,
+                customer_code=f"CUST{user.id:04d}",
+                full_name=user.full_name,
+                email=user.email,
+                salary=0.0,
+                kyc_status="VERIFIED",
+                currency_symbol=currency_symbol,
+            )
+            db.add(customer)
+            account = Account(
+                account_id=user.id,
+                customer_id=user.id,
+                account_number=f"ACC-{user.id:04d}8901",
+                account_type="Savings",
+                balance=0.0,
+                savings=0.0,
+                monthly_salary=0.0,
+                currency_symbol=currency_symbol,
+                status="ACTIVE",
+            )
+            db.add(account)
+            db.commit()
 
     if not customer or not account:
         return {
-            "customer": "Robert Wilson",
+            "customer": user.full_name if user else "Customer",
             "question": body.get("question", ""),
-            "answer": "Unable to load customer account. Demo data is initializing, please try again in a moment.",
+            "answer": "Please upload a bank statement to enable AI financial analysis.",
             "account": {
-                "balance": 20000.0,
+                "balance": 0.0,
                 "status": "ACTIVE",
+                "currency_symbol": currency_symbol,
             },
             "offer": None,
         }
@@ -351,8 +880,8 @@ def ai_chat(
         account,
         transactions,
     )
-    
-    question = body.get("question", "")
+
+    question = body.get("question") or body.get("message") or ""
     offer = build_offer(
         customer,
         account,
@@ -368,49 +897,86 @@ def ai_chat(
         health,
         question,
         offer,
+        currency_symbol=currency_symbol,
+        language=language,
     )
-
 
     return {
         "customer": customer.full_name,
         "question": question,
         "answer": answer,
+        "reply": answer,
         "account": {
             "balance": float(account.balance),
             "status": account.status,
+            "currency_symbol": currency_symbol,
         },
         "offer": offer,
     }
-@app.get("/dashboard")
-def get_dashboard(db: Session = Depends(get_db)):
 
-    account = db.query(Account).first()
-    customer = db.query(Customer).first()
+
+@app.get("/dashboard")
+def get_dashboard(customer_id: int = 1, db: Session = Depends(get_db)):
+    account = db.query(Account).filter(Account.customer_id == customer_id).first()
+    customer = db.query(Customer).filter(Customer.customer_id == customer_id).first()
+    user = db.query(User).filter(User.id == customer_id).first()
 
     if not account or not customer:
-        from app.seeder import seed_database
-        seed_database(db, force=False)
-        account = db.query(Account).first()
-        customer = db.query(Customer).first()
+        if customer_id == 1:
+            from app.seeder import seed_database
+            seed_database(db, force=False)
+            account = db.query(Account).filter(Account.customer_id == 1).first()
+            customer = db.query(Customer).filter(Customer.customer_id == 1).first()
+        elif user:
+            customer = Customer(
+                customer_id=user.id,
+                customer_code=f"CUST{user.id:04d}",
+                full_name=user.full_name,
+                email=user.email,
+                salary=0.0,
+                kyc_status="VERIFIED",
+                currency_symbol=user.currency_symbol or "₹",
+            )
+            db.add(customer)
+            account = Account(
+                account_id=user.id,
+                customer_id=user.id,
+                account_number=f"ACC-{user.id:04d}8901",
+                account_type="Savings",
+                balance=0.0,
+                savings=0.0,
+                monthly_salary=0.0,
+                currency_symbol=user.currency_symbol or "₹",
+                status="ACTIVE",
+            )
+            db.add(account)
+            db.commit()
 
     if not account or not customer:
         return {
-            "balance": 0,
-            "income": 0,
-            "expenses": 0,
-            "savings": 0,
+            "customer_name": "Customer",
+            "currency_symbol": "₹",
+            "balance": 0.0,
+            "income": 0.0,
+            "expenses": 0.0,
+            "savings": 0.0,
             "health_score": 0,
-            "health_status": "Unknown",
-            "insights": {}
+            "health_status": "No Statement Uploaded",
+            "insights": {
+                "balance": "Upload bank statement to view liquidity analysis",
+                "income": "Upload bank statement to view cash flow",
+                "expenses": "Upload bank statement to view spending",
+                "savings": "Upload bank statement to track savings habit"
+            }
         }
 
     expenses = (
         db.query(func.sum(Transaction.amount))
-        .filter(Transaction.transaction_type == "Debit")
+        .filter(Transaction.customer_id == customer_id, Transaction.transaction_type == "Debit")
         .scalar()
-    ) or 0
+    ) or 0.0
 
-    transactions = db.query(Transaction).all()
+    transactions = db.query(Transaction).filter(Transaction.customer_id == customer_id).all()
 
     health = calculate_financial_health(
         customer,
@@ -418,7 +984,11 @@ def get_dashboard(db: Session = Depends(get_db)):
         transactions
     )
 
+    currency_sym = getattr(account, "currency_symbol", None) or (user.currency_symbol if user else "$") or "$"
+
     return {
+        "customer_name": customer.full_name,
+        "currency_symbol": currency_sym,
         "balance": float(account.balance),
         "income": float(account.monthly_salary),
         "expenses": float(expenses),
@@ -428,33 +998,36 @@ def get_dashboard(db: Session = Depends(get_db)):
         "health_status": health["status"],
 
         "insights": {
-            "balance": "↑ Strong liquidity position",
-            "income": "Stable monthly cash flow",
-            "expenses": "Electronics spending increased",
-            "savings": "Excellent saving habit"
-        }}
+            "balance": "↑ Strong liquidity position" if float(account.balance) > 0 else "Upload statement to check balance",
+            "income": "Stable monthly cash flow" if float(account.monthly_salary) > 0 else "No monthly income recorded",
+            "expenses": "Spending tracked from statement" if float(expenses) > 0 else "No expenses recorded",
+            "savings": "Healthy emergency fund buffer" if float(account.savings) > 0 else "Start saving to build a buffer"
+        }
+    }
+
+
 @app.get("/spending-chart")
-def spending_chart(db: Session = Depends(get_db)):
+def spending_chart(customer_id: int = 1, db: Session = Depends(get_db)):
 
     transactions = (
         db.query(Transaction)
-        .filter(Transaction.transaction_type == "Debit")
+        .filter(Transaction.customer_id == customer_id, Transaction.transaction_type == "Debit")
         .all()
     )
 
     months = {
-        "Jan": 0,
-        "Feb": 0,
-        "Mar": 0,
-        "Apr": 0,
-        "May": 0,
-        "Jun": 0,
-        "Jul": 0,
-        "Aug": 0,
-        "Sep": 0,
-        "Oct": 0,
-        "Nov": 0,
-        "Dec": 0,
+        "Jan": 0.0,
+        "Feb": 0.0,
+        "Mar": 0.0,
+        "Apr": 0.0,
+        "May": 0.0,
+        "Jun": 0.0,
+        "Jul": 0.0,
+        "Aug": 0.0,
+        "Sep": 0.0,
+        "Oct": 0.0,
+        "Nov": 0.0,
+        "Dec": 0.0,
     }
 
     for t in transactions:
@@ -463,9 +1036,10 @@ def spending_chart(db: Session = Depends(get_db)):
             months[month] += float(t.amount)
 
     return [
-        {"month": k, "expense": v}
+        {"month": k, "expense": round(v, 2)}
         for k, v in months.items()
-        ]
+    ]
+
 
 
 @app.post("/demo/reset/{customer_id}")

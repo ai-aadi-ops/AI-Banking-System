@@ -2,15 +2,21 @@ import { API_BASE } from "../config";
 import { Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 
-export default function AIRecommendation() {
+import { t } from "../utils/i18n";
+
+export default function AIRecommendation({
+  customerId = 1,
+  currencySymbol = "$",
+  lang = "en",
+}) {
   const [health, setHealth] = useState(null);
 
   useEffect(() => {
-    fetch(`${API_BASE}/ai/financial-health/1`)
+    fetch(`${API_BASE}/ai/financial-health/${customerId}`)
       .then((res) => res.json())
       .then((data) => setHealth(data))
       .catch(console.error);
-  }, []);
+  }, [customerId]);
 
   if (!health) {
     return (
@@ -27,7 +33,7 @@ export default function AIRecommendation() {
         <Sparkles className="text-yellow-300" size={30} />
 
         <h2 className="text-3xl font-bold text-white">
-          AI Financial Health
+          {t("aiRecommendation", lang)}
         </h2>
       </div>
 
@@ -35,34 +41,35 @@ export default function AIRecommendation() {
 
         <div>
           <p className="text-slate-200">
-            Health Score
+            {t("healthScore", lang)}
           </p>
 
           <h2 className="text-5xl font-bold">
             {health.financial_health_score}/100
           </h2>
 
-          <p className="mt-2 text-yellow-200">
+          <p className="mt-2 text-yellow-200 font-medium">
             {health.status}
           </p>
         </div>
 
         <div>
-          <p>Savings Ratio</p>
+          <p>{t("savingsRatio", lang)}</p>
           <h3 className="text-2xl font-bold">
-            {health.savings_ratio}%
+            {health.savings_ratio || 0}%
           </h3>
 
           <p className="mt-4">
-            Spending Ratio
+            {t("spendingRatio", lang)}
           </p>
 
           <h3 className="text-2xl font-bold">
-            {health.spending_ratio}%
+            {health.spending_ratio || 0}%
           </h3>
         </div>
 
       </div>
+
 
       <div className="mt-8">
 
