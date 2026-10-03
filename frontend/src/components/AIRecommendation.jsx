@@ -13,6 +13,7 @@ export default function AIRecommendation({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!customerId) return;
     let isMounted = true;
     setLoading(true);
 
@@ -23,8 +24,10 @@ export default function AIRecommendation({
       })
       .then((data) => {
         if (!isMounted) return;
-        if (data && !data.detail) {
+        if (data && !data.detail && !data.error) {
           setHealth(data);
+        } else {
+          setHealth(null);
         }
       })
       .catch((err) => {
@@ -39,16 +42,15 @@ export default function AIRecommendation({
     };
   }, [customerId, cleared]);
 
-  const score = health?.financial_health_score ?? (loading ? "..." : 80);
-  const status = health?.status ?? (loading ? "Evaluating..." : "Good Standing");
+  const score = health?.financial_health_score ?? (loading ? "..." : 0);
+  const status = health?.status ?? (loading ? "Evaluating..." : "Poor");
   const savingsRatio = health?.savings_ratio ?? 0;
   const spendingRatio = health?.spending_ratio ?? 0;
   const adviceList = Array.isArray(health?.advice) && health.advice.length > 0
     ? health.advice
     : [
-        "Maintain adequate liquidity for emergencies.",
-        "Track monthly variable expenses to optimize budget.",
-        "Investment allocation recommended for long-term growth.",
+        "Upload a bank statement to receive personalized AI financial advice.",
+        "Build an emergency savings buffer of at least 20% of your monthly income.",
       ];
 
   return (

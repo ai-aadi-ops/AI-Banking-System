@@ -52,16 +52,19 @@ export default function Advisor() {
     }
 
     if (userSlug) {
-      const activeSessionCid = sessionStorage.getItem(`active_customer_id_${userSlug}`);
-      fetch(`${API_BASE}/auth/resolve-slug/${encodeURIComponent(userSlug)}`)
+      const activeSessionCid =
+        sessionStorage.getItem(`active_customer_id_${userSlug}`) ||
+        localCandidate?.customer_id ||
+        localCandidate?.id ||
+        "";
+      const qs = activeSessionCid ? `?preferred_cid=${encodeURIComponent(activeSessionCid)}` : "";
+      fetch(`${API_BASE}/auth/resolve-slug/${encodeURIComponent(userSlug)}${qs}`)
         .then((res) => (res.ok ? res.json() : null))
         .then((resolved) => {
           if (!isMounted) return;
           if (resolved && resolved.customer_id) {
-            if (!activeSessionCid || !localCandidate || localCandidate.customer_id === 1) {
-              setUser(resolved);
-              saveUserSession(resolved);
-            }
+            setUser(resolved);
+            saveUserSession(resolved);
           }
         })
         .catch((err) => {
@@ -77,7 +80,7 @@ export default function Advisor() {
   const activeSlug = userSlug || getUserSlug(user) || "user";
   const currencySymbol = user?.currency_symbol || (activeSlug === "robert" ? "$" : "₹");
   const currencyCode = user?.currency_code || (activeSlug === "robert" ? "USD" : "INR");
-  const customerId = user?.customer_id || user?.id || (activeSlug === "robert" ? 1 : 8);
+  const customerId = user?.customer_id || user?.id || (activeSlug === "robert" ? 1 : 9);
   const isDemoAccount = activeSlug === "robert" || Number(customerId) === 1;
 
   const sampleAmount = currencySymbol === "₹" ? "80,000" : "1,200";

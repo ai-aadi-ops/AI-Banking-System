@@ -14,11 +14,13 @@ export default function DashboardCards({
   currencyCode = "USD",
   lang = "en",
   cleared = false,
+  onDashboardLoaded,
 }) {
   const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!customerId) return;
     let isMounted = true;
     setLoading(true);
 
@@ -33,8 +35,10 @@ export default function DashboardCards({
         if (!isMounted) return;
         if (data && typeof data === "object" && !data.detail) {
           setDashboard(data);
+          if (onDashboardLoaded) {
+            onDashboardLoaded(data);
+          }
         } else {
-          // Fallback structure if backend returns an unexpected detail
           setDashboard(null);
         }
       })
@@ -55,8 +59,34 @@ export default function DashboardCards({
   const incomeVal = dashboard?.income ?? 0;
   const expensesVal = dashboard?.expenses ?? 0;
   const savingsVal = dashboard?.savings ?? 0;
-  const healthScore = Number(dashboard?.health_score) || 0;
-  const healthStatus = dashboard?.health_status || "Good Standing";
+
+  const isZeroLiquidity = Number(balanceVal) <= 0 && Number(savingsVal) <= 0;
+  const rawScore = Number(dashboard?.health_score) || 0;
+  const healthScore = isZeroLiquidity ? Math.min(rawScore, 20) : rawScore;
+  const healthStatus = isZeroLiquidity
+    ? "Poor"
+    : dashboard?.health_status || (healthScore >= 85 ? "Excellent" : healthScore >= 70 ? "Good" : healthScore >= 50 ? "Average" : "Poor");
+
+  const isPoor = healthStatus === "Poor" || healthScore < 50;
+  const isAverage = healthStatus === "Average" || (healthScore >= 50 && healthScore < 70);
+
+  const scoreTextColor = isPoor
+    ? "text-red-400"
+    : isAverage
+    ? "text-amber-400"
+    : "text-green-400";
+
+  const statusBadgeColor = isPoor
+    ? "text-red-400"
+    : isAverage
+    ? "text-amber-300"
+    : "text-emerald-300";
+
+  const barGradient = isPoor
+    ? "from-red-600 to-orange-500"
+    : isAverage
+    ? "from-amber-500 to-yellow-400"
+    : "from-green-500 to-cyan-400";
 
   const cards = [
     {
@@ -123,18 +153,18 @@ export default function DashboardCards({
             <span>{t("financialHealth", lang)}</span>
           </h2>
 
-          <div className="text-6xl font-extrabold text-green-400 mt-6">
+          <div className={`text-6xl font-extrabold ${scoreTextColor} mt-6`}>
             {healthScore}
             <span className="text-xl text-slate-500 font-normal">/100</span>
           </div>
 
-          <p className="text-xl mt-2 font-medium text-slate-200">
+          <p className={`text-xl mt-2 font-semibold ${statusBadgeColor}`}>
             {healthStatus}
           </p>
 
           <div className="w-full h-4 bg-slate-800 rounded-full mt-6 overflow-hidden">
             <div
-              className="bg-gradient-to-r from-green-500 to-cyan-400 h-4 rounded-full transition-all duration-500"
+              className={`bg-gradient-to-r ${barGradient} h-4 rounded-full transition-all duration-500`}
               style={{
                 width: `${Math.min(100, Math.max(5, healthScore))}%`,
               }}

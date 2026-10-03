@@ -2,23 +2,43 @@ import { useNavigate } from "react-router-dom";
 import { t } from "../utils/i18n";
 import { getUserSlug } from "../utils/userSlug";
 
-export default function DashboardHeader({ user, lang = "en" }) {
+export default function DashboardHeader({
+  user,
+  statementHolderName,
+  lang = "en",
+}) {
   const navigate = useNavigate();
 
-  const userName = user?.full_name || "Customer";
+  const registeredName = user?.full_name || "Customer";
+  const displayName =
+    statementHolderName ||
+    user?.statement_holder_name ||
+    registeredName;
   const userSlug = getUserSlug(user);
+
+  const showProfileBadge =
+    displayName &&
+    registeredName &&
+    displayName.toLowerCase().trim() !== registeredName.toLowerCase().trim();
 
   return (
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
       <div>
         <h1 className="text-3xl md:text-4xl font-bold">
           {t("welcomeBack", lang)}{" "}
-          <span className="text-cyan-400">{userName} 👋</span>
+          <span className="text-cyan-400">{displayName} 👋</span>
         </h1>
 
-        <p className="mt-2 text-slate-400 text-sm md:text-base">
-          {t("financialOverview", lang)}
-        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <p className="text-slate-400 text-sm md:text-base">
+            {t("financialOverview", lang)}
+          </p>
+          {showProfileBadge && (
+            <span className="text-xs bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 px-3 py-1 rounded-full font-medium">
+              Statement Holder: {displayName} • Profile: {registeredName}
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="flex items-center gap-4">
@@ -31,7 +51,7 @@ export default function DashboardHeader({ user, lang = "en" }) {
         </button>
 
         <div className="h-11 w-11 rounded-full border-2 border-cyan-400 bg-slate-800 flex items-center justify-center font-bold text-cyan-400">
-          {userName.charAt(0).toUpperCase()}
+          {displayName.charAt(0).toUpperCase()}
         </div>
       </div>
     </div>

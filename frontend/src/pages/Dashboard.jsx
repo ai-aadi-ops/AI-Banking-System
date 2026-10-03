@@ -23,6 +23,7 @@ export default function Dashboard() {
   const userSlug = rawSlug.replace(/[-_]dashboard$/i, "").toLowerCase();
 
   const [user, setUser] = useState(() => resolveInitialUserForSlug(userSlug));
+  const [statementHolderName, setStatementHolderName] = useState("");
 
   const [lang, setLang] = useState(() => {
     try {
@@ -51,6 +52,7 @@ export default function Dashboard() {
     // On page load / F5 / hard refresh, reset demo balance back to $20,000.00
     if (userSlug === "robert") {
       setUser(DEMO_ROBERT_USER);
+      setStatementHolderName("Robert Wilson");
       setLang("en");
       setDemoCleared(false);
       sessionStorage.setItem("hasActiveStatement", "true");
@@ -66,6 +68,9 @@ export default function Dashboard() {
     const localCandidate = resolveInitialUserForSlug(userSlug);
     if (localCandidate) {
       setUser(localCandidate);
+      if (localCandidate.statement_holder_name) {
+        setStatementHolderName(localCandidate.statement_holder_name);
+      }
       const savedLang = localStorage.getItem("preferred_language") || localCandidate.preferred_language || "en";
       setLang(savedLang);
       sessionStorage.setItem("hasActiveStatement", "true");
@@ -73,17 +78,24 @@ export default function Dashboard() {
 
     // 3. Query backend /auth/resolve-slug/{userSlug} to ensure we use the profile with uploaded transactions
     if (userSlug) {
-      const activeSessionCid = sessionStorage.getItem(`active_customer_id_${userSlug}`);
-      fetch(`${API_BASE}/auth/resolve-slug/${encodeURIComponent(userSlug)}`)
+      const activeSessionCid =
+        sessionStorage.getItem(`active_customer_id_${userSlug}`) ||
+        localCandidate?.customer_id ||
+        localCandidate?.id ||
+        "";
+      const qs = activeSessionCid ? `?preferred_cid=${encodeURIComponent(activeSessionCid)}` : "";
+      fetch(`${API_BASE}/auth/resolve-slug/${encodeURIComponent(userSlug)}${qs}`)
         .then((res) => (res.ok ? res.json() : null))
         .then((resolved) => {
           if (!isMounted) return;
           if (resolved && resolved.customer_id) {
-            if (!activeSessionCid || !localCandidate || localCandidate.customer_id === 1) {
-              setUser(resolved);
-              saveUserSession(resolved);
-              sessionStorage.setItem("hasActiveStatement", "true");
+            setUser(resolved);
+            if (resolved.statement_holder_name) {
+              setStatementHolderName(resolved.statement_holder_name);
             }
+            saveUserSession(resolved);
+            sessionStorage.setItem("hasActiveStatement", "true");
+            sessionStorage.setItem(`active_customer_id_${userSlug}`, String(resolved.customer_id));
           } else if (!localCandidate) {
             navigate("/login");
           }
@@ -116,30 +128,38 @@ export default function Dashboard() {
   };
 
   const activeSlug = userSlug || getUserSlug(user) || "user";
-  const customerId = user?.customer_id || user?.id || 1;
+  const customerId =
+    userSlug === "robert"
+      ? 1
+      : user?.customer_id && Number(user.customer_id) !== 1
+      ? user.customer_id
+      : user?.id && Number(user.id) !== 1
+      ? user.id
+      : null;
   const isDemoAccount = userSlug === "robert" || Number(customerId) === 1;
 
   const handleClearData = async () => {
-    if (!user) return;
+    if (!user || !customerId) return;
     const confirm = window.confirm(t("confirmClear", lang));
     if (!confirm) return;
 
-    const cid = user.customer_id || user.id || 1;
     setClearing(true);
     try {
       await fetch(`${API_BASE}/statements/clear`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          customer_id: cid,
+          customer_id: customerId,
         }),
       });
 
-      if (userSlug === "robert" || Number(cid) === 1) {
-        // For Demo account (Robert Wilson): show $0.00 on dashboard until page refresh/hard refresh,
-        // which will automatically restore the $20,000.00 demo data!
+      if (userSlug === "robert" || Number(customerId) === 1) {
         setDemoCleared(true);
       } else {
+        const resetUser = { ...user, statement_holder_name: user.full_name, has_transactions: false };
+        setUser(resetUser);
+        setStatementHolderName(user.full_name);
+        saveUserSession(resetUser);
         sessionStorage.removeItem("hasActiveStatement");
         navigate(`/${activeSlug}-dashboard/upload-statement`);
       }
@@ -174,7 +194,7 @@ export default function Dashboard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          customer_id: customerId,
+          customer_id: customerId || 1,
           email: user?.email || "",
           password: deletePassword.trim(),
         }),
@@ -195,7 +215,7 @@ export default function Dashboard() {
       // Clear local & session storage and redirect to Create Account (/register)
       localStorage.removeItem("isLoggedIn");
       localStorage.removeItem("user");
-      localStorage.removeItem(`user_by_slug_${activeSlug}`);
+      localStorage.removeItem(`user_slug_${activeSlug}`);
       sessionStorage.removeItem("hasActiveStatement");
       sessionStorage.removeItem(`active_customer_id_${activeSlug}`);
       setShowDeleteModal(false);
@@ -208,8 +228,8 @@ export default function Dashboard() {
     }
   };
 
-  // Safe fallback UI if user is still synchronizing
-  if (!user) {
+  // Safe fallback UI if user or customerId is still synchronizing
+  if (!user || !customerId) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white px-6">
         <div className="w-10 h-10 border-4 border-cyan-400 border-t-transparent rounded-full animate-spin mb-4"></div>
@@ -218,8 +238,8 @@ export default function Dashboard() {
     );
   }
 
-  const currencySymbol = user.currency_symbol || "$";
-  const currencyCode = user.currency_code || "USD";
+  const currencySymbol = user.currency_symbol || (isDemoAccount ? "$" : "₹");
+  const currencyCode = user.currency_code || (isDemoAccount ? "USD" : "INR");
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
@@ -376,10 +396,25 @@ export default function Dashboard() {
       )}
 
       {/* Main Dashboard Section */}
-      <section className="max-w-7xl mx-auto px-6 md:px-10 py-8" key={`dash-${refreshTick}`}>
-        <DashboardHeader user={user} lang={lang} />
+      <section className="max-w-7xl mx-auto px-6 md:px-10 py-8" key={`dash-${customerId}-${refreshTick}`}>
+        <DashboardHeader
+          user={user}
+          statementHolderName={statementHolderName || user.statement_holder_name || user.full_name}
+          lang={lang}
+        />
 
-        <DashboardCards customerId={customerId} currencySymbol={currencySymbol} currencyCode={currencyCode} lang={lang} cleared={demoCleared} />
+        <DashboardCards
+          customerId={customerId}
+          currencySymbol={currencySymbol}
+          currencyCode={currencyCode}
+          lang={lang}
+          cleared={demoCleared}
+          onDashboardLoaded={(d) => {
+            if (d?.customer_name) {
+              setStatementHolderName(d.customer_name);
+            }
+          }}
+        />
 
         <SpendingChart customerId={customerId} currencySymbol={currencySymbol} lang={lang} cleared={demoCleared} />
 

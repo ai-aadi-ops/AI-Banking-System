@@ -1,16 +1,26 @@
 /**
  * Utility to extract a clean, URL-safe user slug from a user object.
  * E.g., "Aaditya Acharya" -> "aaditya"
+ * "Mr. Aaditya Acharya" -> "aaditya"
  * "Robert Wilson" -> "robert"
- * "John" -> "john"
  */
 export function getUserSlug(user) {
   if (!user) return "user";
 
-  const rawName = user.full_name || user.name || (user.email ? user.email.split("@")[0] : "") || "user";
-  const firstName = rawName.trim().split(/\s+/)[0] || "user";
+  const rawName =
+    user.registered_name ||
+    user.full_name ||
+    user.name ||
+    (user.email ? user.email.split("@")[0] : "") ||
+    "user";
 
-  // Clean special characters, convert to lowercase
+  const withoutHonorific = rawName
+    .trim()
+    .replace(/^(?:mr|mrs|ms|dr|shri|smt)\.?\s+/i, "")
+    .trim();
+
+  const firstName = (withoutHonorific || rawName.trim()).split(/\s+/)[0] || "user";
+
   const slug = firstName.toLowerCase().replace(/[^a-z0-9_-]/g, "");
   return slug || "user";
 }
@@ -19,6 +29,7 @@ export const DEMO_ROBERT_USER = {
   id: 1,
   customer_id: 1,
   full_name: "Robert Wilson",
+  statement_holder_name: "Robert Wilson",
   email: "robert.wilson@demo.com",
   country: "United States",
   preferred_language: "en",
@@ -29,9 +40,10 @@ export const DEMO_ROBERT_USER = {
 };
 
 export const DEFAULT_AADITYA_USER = {
-  id: 8,
-  customer_id: 8,
+  id: 9,
+  customer_id: 9,
   full_name: "Aaditya Acharya",
+  statement_holder_name: "Aaditya Acharya",
   email: "aadityaacharya2109@gmail.com",
   country: "India",
   preferred_language: "en",
@@ -70,37 +82,33 @@ export function resolveInitialUserForSlug(userSlug) {
   }
 
   try {
-    // 1. Check if this session explicitly set an active customer for this slug (e.g. just uploaded statement)
     const activeCid = sessionStorage.getItem(`active_customer_id_${cleanSlug}`);
-    const slugStored = localStorage.getItem(`user_slug_${cleanSlug}`);
-    if (slugStored) {
-      const parsedSlugUser = JSON.parse(slugStored);
-      if (activeCid && String(parsedSlugUser.customer_id || parsedSlugUser.id) === String(activeCid)) {
-        return parsedSlugUser;
-      }
-      // For aaditya, avoid empty test accounts 6 and 7 unless explicitly active in this session
-      if (cleanSlug === "aaditya" && (parsedSlugUser.customer_id === 6 || parsedSlugUser.customer_id === 7) && !activeCid) {
-        return DEFAULT_AADITYA_USER;
-      }
-      if (parsedSlugUser.customer_id && parsedSlugUser.customer_id !== 1) {
-        return parsedSlugUser;
-      }
-    }
 
-    // 2. Check general stored user in localStorage
+    // 1. Check general stored user in localStorage first (most recent login/register/upload)
     const stored = localStorage.getItem("user");
     if (stored) {
       const parsed = JSON.parse(stored);
       const storedSlug = getUserSlug(parsed);
-      if (!cleanSlug || storedSlug === cleanSlug) {
-        if (cleanSlug === "aaditya" && (parsed.customer_id === 6 || parsed.customer_id === 7) && !activeCid) {
-          return DEFAULT_AADITYA_USER;
+      if ((!cleanSlug || storedSlug === cleanSlug) && Number(parsed.customer_id || parsed.id) !== 1) {
+        if (cleanSlug === "aaditya" && Number(parsed.customer_id || parsed.id) === 8) {
+          return { ...parsed, id: 9, customer_id: 9 };
         }
-        if (cleanSlug !== "robert" && parsed.customer_id === 1) {
-          // Don't use Robert Wilson's ID 1 for a non-robert slug
-        } else {
-          return parsed;
+        return parsed;
+      }
+    }
+
+    // 2. Check slug-specific storage
+    const slugStored = localStorage.getItem(`user_slug_${cleanSlug}`);
+    if (slugStored) {
+      const parsedSlugUser = JSON.parse(slugStored);
+      if (Number(parsedSlugUser.customer_id || parsedSlugUser.id) !== 1) {
+        if (activeCid && String(parsedSlugUser.customer_id || parsedSlugUser.id) === String(activeCid)) {
+          return parsedSlugUser;
         }
+        if (cleanSlug === "aaditya" && Number(parsedSlugUser.customer_id || parsedSlugUser.id) === 8) {
+          return { ...parsedSlugUser, id: 9, customer_id: 9 };
+        }
+        return parsedSlugUser;
       }
     }
   } catch (e) {

@@ -514,7 +514,7 @@ def get_current_user_info(customer_id: int = 1, db: Session = Depends(get_db)):
 
 
 @app.get("/auth/resolve-slug/{slug}")
-def resolve_user_by_slug(slug: str, db: Session = Depends(get_db)):
+def resolve_user_by_slug(slug: str, preferred_cid: Optional[int] = None, db: Session = Depends(get_db)):
     import re
     clean_slug = re.sub(r"[-_]dashboard$", "", (slug or "").strip(), flags=re.IGNORECASE).lower()
     clean_slug = re.sub(r"[^a-z0-9_-]", "", clean_slug)
@@ -526,6 +526,7 @@ def resolve_user_by_slug(slug: str, db: Session = Depends(get_db)):
             "id": 1,
             "customer_id": 1,
             "full_name": "Robert Wilson",
+            "statement_holder_name": "Robert Wilson",
             "email": "robert.wilson@demo.com",
             "country": "United States",
             "preferred_language": "en",
@@ -537,7 +538,9 @@ def resolve_user_by_slug(slug: str, db: Session = Depends(get_db)):
 
     def extract_slug(name_str: str, email_str: str = "") -> str:
         raw = (name_str or (email_str.split("@")[0] if email_str else "") or "user").strip()
-        first = raw.split()[0] if raw.split() else "user"
+        # Strip honorifics like Mr., Mrs., Ms., Dr. when computing slug if needed
+        cleaned_raw = re.sub(r"^(?:mr|mrs|ms|dr|shri|smt)\.?\s+", "", raw, flags=re.IGNORECASE).strip()
+        first = (cleaned_raw or raw).split()[0] if (cleaned_raw or raw).split() else "user"
         return re.sub(r"[^a-z0-9_-]", "", first.lower()) or "user"
 
     candidates = []
@@ -546,35 +549,44 @@ def resolve_user_by_slug(slug: str, db: Session = Depends(get_db)):
         if u.id == 1:
             continue
         u_slug = extract_slug(u.full_name, u.email)
-        if u_slug == clean_slug:
-            cust = db.query(Customer).filter(Customer.email == u.email).first() or db.query(Customer).filter(Customer.customer_id == u.id).first()
+        raw_first = re.sub(r"[^a-z0-9_-]", "", (u.full_name or "").strip().split()[0].lower()) if (u.full_name or "").strip() else ""
+        cust = db.query(Customer).filter(Customer.email == u.email).first() or db.query(Customer).filter(Customer.customer_id == u.id).first()
+        c_slug = extract_slug(cust.full_name, cust.email) if cust else ""
+        if clean_slug in (u_slug, raw_first, c_slug):
             cid = cust.customer_id if cust else u.id
             tx_cnt = db.query(func.count(Transaction.transaction_id)).filter(Transaction.customer_id == cid).scalar() or 0
-            candidates.append((tx_cnt > 0, tx_cnt, cid, {
+            max_tx_id = db.query(func.max(Transaction.transaction_id)).filter(Transaction.customer_id == cid).scalar() or 0
+            is_pref = (preferred_cid is not None and int(cid) == int(preferred_cid))
+            candidates.append((tx_cnt > 0, max_tx_id, is_pref, cid, {
                 "id": u.id,
                 "customer_id": cid,
                 "full_name": u.full_name,
+                "statement_holder_name": cust.full_name if cust and cust.full_name else u.full_name,
                 "email": u.email,
                 "country": u.country or "India",
                 "preferred_language": u.preferred_language or "en",
-                "currency_code": u.currency_code or "INR",
-                "currency_symbol": u.currency_symbol or "₹",
+                "currency_code": (cust.currency_code if cust and getattr(cust, "currency_code", None) else u.currency_code) or "INR",
+                "currency_symbol": (cust.currency_symbol if cust and getattr(cust, "currency_symbol", None) else u.currency_symbol) or "₹",
                 "is_demo": False,
                 "has_transactions": tx_cnt > 0,
             }))
 
     all_customers = db.query(Customer).all()
-    seen_cids = {c[2] for c in candidates}
+    seen_cids = {c[3] for c in candidates}
     for c in all_customers:
         if c.customer_id == 1 or c.customer_id in seen_cids:
             continue
         c_slug = extract_slug(c.full_name, c.email)
-        if c_slug == clean_slug:
+        raw_first = re.sub(r"[^a-z0-9_-]", "", (c.full_name or "").strip().split()[0].lower()) if (c.full_name or "").strip() else ""
+        if clean_slug in (c_slug, raw_first):
             tx_cnt = db.query(func.count(Transaction.transaction_id)).filter(Transaction.customer_id == c.customer_id).scalar() or 0
-            candidates.append((tx_cnt > 0, tx_cnt, c.customer_id, {
+            max_tx_id = db.query(func.max(Transaction.transaction_id)).filter(Transaction.customer_id == c.customer_id).scalar() or 0
+            is_pref = (preferred_cid is not None and int(c.customer_id) == int(preferred_cid))
+            candidates.append((tx_cnt > 0, max_tx_id, is_pref, c.customer_id, {
                 "id": c.customer_id,
                 "customer_id": c.customer_id,
                 "full_name": c.full_name,
+                "statement_holder_name": c.full_name,
                 "email": c.email,
                 "country": getattr(c, "country", "India") or "India",
                 "preferred_language": "en",
@@ -585,38 +597,111 @@ def resolve_user_by_slug(slug: str, db: Session = Depends(get_db)):
             }))
 
     if candidates:
-        candidates.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
-        return candidates[0][3]
+        candidates.sort(key=lambda x: (x[0], x[1], x[2], x[3]), reverse=True)
+        return candidates[0][4]
 
     raise HTTPException(status_code=404, detail=f"No user found for slug '{clean_slug}'")
 
 
-# -------------------------------------------------------------
-# STATEMENT UPLOAD & DATA MANAGEMENT ROUTES
-# -------------------------------------------------------------
+def _get_same_slug_customer_ids(db: Session, customer_id: int) -> list[int]:
+    """Find any duplicate non-demo customer IDs sharing the same first-name slug."""
+    import re
+    if int(customer_id) == 1:
+        return [1]
 
-@app.post("/statements/upload")
-async def upload_statement(
-    file: UploadFile = File(...),
-    customer_id: int = Form(...),
-    country: str = Form("India"),
-    currency: Optional[str] = Form(None),
-    db: Session = Depends(get_db),
+    cust = db.query(Customer).filter(Customer.customer_id == customer_id).first()
+    user = (
+        (db.query(User).filter(User.email == cust.email).first() if cust and cust.email else None)
+        or db.query(User).filter(User.id == customer_id).first()
+    )
+    base_name = (user.full_name if user else (cust.full_name if cust else "")) or ""
+    if not base_name.strip():
+        return [int(customer_id)]
+
+    first_slug = re.sub(r"[^a-z0-9_-]", "", base_name.strip().split()[0].lower())
+    if not first_slug or first_slug in ("robert", "demo"):
+        return [int(customer_id)]
+
+    matching_cids = {int(customer_id)}
+    for u in db.query(User).all():
+        if u.id == 1:
+            continue
+        u_first = re.sub(r"[^a-z0-9_-]", "", (u.full_name or "").strip().split()[0].lower()) if (u.full_name or "").strip() else ""
+        if u_first == first_slug:
+            matching_cids.add(int(u.id))
+            c_match = db.query(Customer).filter(Customer.email == u.email).first()
+            if c_match and c_match.customer_id != 1:
+                matching_cids.add(int(c_match.customer_id))
+
+    for c in db.query(Customer).all():
+        if c.customer_id == 1:
+            continue
+        c_first = re.sub(r"[^a-z0-9_-]", "", (c.full_name or "").strip().split()[0].lower()) if (c.full_name or "").strip() else ""
+        if c_first == first_slug:
+            matching_cids.add(int(c.customer_id))
+
+    return sorted(matching_cids)
+
+
+def _apply_statement_data_to_customer(
+    db: Session,
+    customer_id: int,
+    data: dict,
+    country: str,
 ):
-    contents = await file.read()
-    filename = file.filename.lower() if file.filename else "statement.pdf"
+    """Persist parsed statement metrics and transactions for customer_id and clean up duplicate slug accounts."""
+    sibling_cids = _get_same_slug_customer_ids(db, customer_id)
 
-    if filename.endswith(".pdf"):
-        data = parse_pdf_statement(contents, country=country)
-    elif filename.endswith((".xlsx", ".xls", ".csv")):
-        data = parse_csv_or_excel(contents, filename, country=country)
-    elif filename.endswith((".png", ".jpg", ".jpeg", ".webp")):
-        mime_type = file.content_type or "image/png"
-        data = parse_image_statement(contents, mime_type, country=country)
+    # Clear old transactions across all sibling customer_ids for this slug so stale data never conflicts
+    for scid in sibling_cids:
+        if scid != int(customer_id):
+            db.query(Transaction).filter(Transaction.customer_id == scid).delete()
+            sib_acc = db.query(Account).filter(Account.customer_id == scid).first()
+            if sib_acc:
+                sib_acc.balance = 0.0
+                sib_acc.savings = 0.0
+                sib_acc.monthly_salary = 0.0
+
+    user = db.query(User).filter(User.id == customer_id).first()
+    customer = db.query(Customer).filter(Customer.customer_id == customer_id).first()
+    if not user and customer and customer.email:
+        user = db.query(User).filter(User.email == customer.email).first()
+
+    holder_name = (
+        data.get("account_holder_name")
+        or (user.full_name if user else None)
+        or (customer.full_name if customer else None)
+        or f"Customer {customer_id}"
+    )
+
+    # 1. Update or create Customer
+    if not customer:
+        cust_code = f"CUST{customer_id:04d}"
+        while db.query(Customer).filter(Customer.customer_code == cust_code).first():
+            cust_code = f"CUST{customer_id:04d}_{random.randint(10, 99)}"
+        customer = Customer(
+            customer_id=customer_id,
+            customer_code=cust_code,
+            full_name=holder_name,
+            email=user.email if user else f"user{customer_id}@example.com",
+            phone="+91-9876543210" if country == "India" else "+1-555-0100",
+            salary=data["monthly_income"],
+            customer_since=date.today(),
+            kyc_status="VERIFIED",
+            country=country,
+            currency_code=data["currency_code"],
+            currency_symbol=data["currency_symbol"],
+        )
+        db.add(customer)
+        db.flush()
     else:
-        data = generate_sample_statement(currency=currency or "INR", country=country)
+        customer.full_name = holder_name
+        customer.salary = data["monthly_income"]
+        customer.currency_code = data["currency_code"]
+        customer.currency_symbol = data["currency_symbol"]
+        customer.country = country
 
-    # 1. Update or create Account
+    # 2. Update or create Account
     account = db.query(Account).filter(Account.customer_id == customer_id).first()
     if not account:
         max_acc = db.query(func.max(Account.account_id)).scalar() or 0
@@ -642,16 +727,7 @@ async def upload_statement(
         account.monthly_salary = data["monthly_income"]
         account.currency_symbol = data["currency_symbol"]
 
-    # 2. Update Customer
-    customer = db.query(Customer).filter(Customer.customer_id == customer_id).first()
-    if customer:
-        customer.salary = data["monthly_income"]
-        customer.currency_code = data["currency_code"]
-        customer.currency_symbol = data["currency_symbol"]
-        customer.country = country
-
-    # 3. Update User
-    user = db.query(User).filter(User.id == customer_id).first()
+    # 3. Update User currency/country (keep User.full_name as registered login name for URL slug stability)
     if user:
         user.currency_code = data["currency_code"]
         user.currency_symbol = data["currency_symbol"]
@@ -704,10 +780,41 @@ async def upload_statement(
     db.commit()
     from app.seeder import reset_postgres_sequences
     reset_postgres_sequences(db)
+    return holder_name
+
+
+# -------------------------------------------------------------
+# STATEMENT UPLOAD & DATA MANAGEMENT ROUTES
+# -------------------------------------------------------------
+
+@app.post("/statements/upload")
+async def upload_statement(
+    file: UploadFile = File(...),
+    customer_id: int = Form(...),
+    country: str = Form("India"),
+    currency: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+):
+    contents = await file.read()
+    filename = file.filename.lower() if file.filename else "statement.pdf"
+
+    if filename.endswith(".pdf"):
+        data = parse_pdf_statement(contents, country=country)
+    elif filename.endswith((".xlsx", ".xls", ".csv")):
+        data = parse_csv_or_excel(contents, filename, country=country)
+    elif filename.endswith((".png", ".jpg", ".jpeg", ".webp")):
+        mime_type = file.content_type or "image/png"
+        data = parse_image_statement(contents, mime_type, country=country)
+    else:
+        data = generate_sample_statement(currency=currency or "INR", country=country)
+
+    holder_name = _apply_statement_data_to_customer(db, int(customer_id), data, country)
 
     return {
         "status": "success",
         "message": f"Successfully parsed and loaded {len(data['transactions'])} transactions from statement.",
+        "customer_id": int(customer_id),
+        "account_holder_name": holder_name,
         "currency_code": data["currency_code"],
         "currency_symbol": data["currency_symbol"],
         "total_balance": data["total_balance"],
@@ -727,96 +834,18 @@ def load_sample(
     db: Session = Depends(get_db)
 ):
     b = body or {}
-    customer_id = b.get("customer_id") or customer_id or 1
+    customer_id = int(b.get("customer_id") or customer_id or 1)
     currency = b.get("currency") or currency or "INR"
     country = b.get("country") or country or "India"
 
     data = generate_sample_statement(currency=currency, country=country)
-
-    account = db.query(Account).filter(Account.customer_id == customer_id).first()
-    if not account:
-        max_acc = db.query(func.max(Account.account_id)).scalar() or 0
-        cand_acc_id = max(max_acc + 1, customer_id)
-        while db.query(Account).filter(Account.account_id == cand_acc_id).first():
-            cand_acc_id += 1
-
-        account = Account(
-            account_id=cand_acc_id,
-            customer_id=customer_id,
-            account_number=f"ACC-{customer_id:04d}8901",
-            account_type="Savings",
-            balance=data["total_balance"],
-            savings=data["savings"],
-            monthly_salary=data["monthly_income"],
-            currency_symbol=data["currency_symbol"],
-            status="ACTIVE"
-        )
-        db.add(account)
-    else:
-        account.balance = data["total_balance"]
-        account.savings = data["savings"]
-        account.monthly_salary = data["monthly_income"]
-        account.currency_symbol = data["currency_symbol"]
-
-    customer = db.query(Customer).filter(Customer.customer_id == customer_id).first()
-    if customer:
-        customer.salary = data["monthly_income"]
-        customer.currency_code = data["currency_code"]
-        customer.currency_symbol = data["currency_symbol"]
-        customer.country = country
-
-    user = db.query(User).filter(User.id == customer_id).first()
-    if user:
-        user.currency_code = data["currency_code"]
-        user.currency_symbol = data["currency_symbol"]
-        user.country = country
-
-    card = db.query(Card).filter(Card.customer_id == customer_id).first()
-    if not card:
-        max_card = db.query(func.max(Card.card_id)).scalar() or 0
-        cand_card_id = max(max_card + 1, customer_id)
-        while db.query(Card).filter(Card.card_id == cand_card_id).first():
-            cand_card_id += 1
-        card = Card(
-            card_id=cand_card_id,
-            customer_id=customer_id,
-            card_number=f"4532-{random.randint(1000, 9999)}-{random.randint(1000, 9999)}-{random.randint(1000, 9999)}",
-            expiry_date="12/29",
-            cvv=str(random.randint(100, 999)),
-            card_type="Visa Platinum",
-            status="ACTIVE"
-        )
-        db.add(card)
-
-    db.query(Transaction).filter(Transaction.customer_id == customer_id).delete()
-
-    for t in data["transactions"]:
-        d_val = t.get("transaction_date")
-        if isinstance(d_val, str):
-            try:
-                d_val = datetime.strptime(d_val, "%Y-%m-%d").date()
-            except Exception:
-                d_val = date.today()
-
-        new_txn = Transaction(
-            customer_id=customer_id,
-            merchant_name=t["merchant_name"],
-            category=t["category"],
-            amount=t["amount"],
-            transaction_type=t["transaction_type"],
-            payment_method=t.get("payment_method", "Card"),
-            transaction_date=d_val,
-            ai_score=t.get("ai_score", "1")
-        )
-        db.add(new_txn)
-
-    db.commit()
-    from app.seeder import reset_postgres_sequences
-    reset_postgres_sequences(db)
+    holder_name = _apply_statement_data_to_customer(db, customer_id, data, country)
 
     return {
         "status": "success",
         "message": f"Sample statement ({data['currency_code']}) loaded successfully.",
+        "customer_id": customer_id,
+        "account_holder_name": holder_name,
         "currency_code": data["currency_code"],
         "currency_symbol": data["currency_symbol"],
         "total_balance": data["total_balance"],
@@ -837,21 +866,27 @@ def clear_statement_data(
     cid = b.get("customer_id") or customer_id
     if not cid:
         raise HTTPException(status_code=400, detail="customer_id is required")
-    customer_id = cid
+    customer_id = int(cid)
 
-    # Delete transactions for this customer
-    db.query(Transaction).filter(Transaction.customer_id == customer_id).delete()
+    target_cids = _get_same_slug_customer_ids(db, customer_id) if customer_id != 1 else [1]
 
-    # Reset account balance and savings
-    account = db.query(Account).filter(Account.customer_id == customer_id).first()
-    if account:
-        account.balance = 0.0
-        account.savings = 0.0
-        account.monthly_salary = 0.0
+    for tcid in target_cids:
+        db.query(Transaction).filter(Transaction.customer_id == tcid).delete()
+        account = db.query(Account).filter(Account.customer_id == tcid).first()
+        if account:
+            account.balance = 0.0
+            account.savings = 0.0
+            account.monthly_salary = 0.0
 
-    customer = db.query(Customer).filter(Customer.customer_id == customer_id).first()
-    if customer:
-        customer.salary = 0.0
+        customer = db.query(Customer).filter(Customer.customer_id == tcid).first()
+        user = (
+            (db.query(User).filter(User.email == customer.email).first() if customer and customer.email else None)
+            or db.query(User).filter(User.id == tcid).first()
+        )
+        if customer:
+            customer.salary = 0.0
+            if user and user.full_name:
+                customer.full_name = user.full_name
 
     db.commit()
 
@@ -948,7 +983,7 @@ def financial_health(customer_id: int,
         .all()
     )
 
-    if not customer or not account:
+    if (not customer or not account) and int(customer_id) == 1:
         from app.seeder import seed_database
         seed_database(db, force=False)
         customer = db.query(Customer).filter(Customer.customer_id == customer_id).first()
@@ -956,7 +991,21 @@ def financial_health(customer_id: int,
         transactions = db.query(Transaction).filter(Transaction.customer_id == customer_id).all()
 
     if not customer or not account:
-        return {"error": "Customer not found"}
+        return {
+            "financial_health_score": 0,
+            "status": "Poor",
+            "annual_salary": 0.0,
+            "monthly_salary": 0.0,
+            "total_spent": 0.0,
+            "monthly_spent": 0.0,
+            "total_savings": 0.0,
+            "savings_ratio": 0.0,
+            "spending_ratio": 0.0,
+            "advice": [
+                "Critical Alert: Total account balance and savings are both zero.",
+                "Upload a bank statement to analyze your financial health and spending habits.",
+            ],
+        }
 
     return calculate_financial_health(
         customer,
@@ -1464,7 +1513,10 @@ def get_dashboard(customer_id: int = 1, cleared: bool = False, db: Session = Dep
 
     account = db.query(Account).filter(Account.customer_id == customer_id).first()
     customer = db.query(Customer).filter(Customer.customer_id == customer_id).first()
-    user = db.query(User).filter(User.id == customer_id).first()
+    user = (
+        (db.query(User).filter(User.email == customer.email).first() if customer and customer.email else None)
+        or db.query(User).filter(User.id == customer_id).first()
+    )
 
     if not account or not customer:
         if customer_id == 1:
@@ -1500,13 +1552,14 @@ def get_dashboard(customer_id: int = 1, cleared: bool = False, db: Session = Dep
     if not account or not customer:
         return {
             "customer_name": "Customer",
+            "registered_name": "Customer",
             "currency_symbol": "₹",
             "balance": 0.0,
             "income": 0.0,
             "expenses": 0.0,
             "savings": 0.0,
             "health_score": 0,
-            "health_status": "No Statement Uploaded",
+            "health_status": "Poor",
             "insights": {
                 "balance": "Upload bank statement to view liquidity analysis",
                 "income": "Upload bank statement to view cash flow",
@@ -1539,6 +1592,7 @@ def get_dashboard(customer_id: int = 1, cleared: bool = False, db: Session = Dep
 
     return {
         "customer_name": customer.full_name,
+        "registered_name": user.full_name if user else customer.full_name,
         "currency_symbol": currency_sym,
         "balance": float(account.balance),
         "income": float(account.monthly_salary),
@@ -1549,10 +1603,10 @@ def get_dashboard(customer_id: int = 1, cleared: bool = False, db: Session = Dep
         "health_status": health["status"],
 
         "insights": {
-            "balance": "↑ Strong liquidity position" if float(account.balance) > 0 else "Upload statement to check balance",
+            "balance": "↑ Strong liquidity position" if float(account.balance) > 0 else "Zero balance — upload statement or deposit funds",
             "income": "Stable monthly cash flow" if float(account.monthly_salary) > 0 else "No monthly income recorded",
             "expenses": "Spending tracked from statement" if float(monthly_expenses) > 0 else "No expenses recorded",
-            "savings": "Healthy emergency fund buffer" if float(account.savings) > 0 else "Start saving to build a buffer"
+            "savings": "Healthy emergency fund buffer" if float(account.savings) > 0 else "Zero savings — start building an emergency buffer"
         }
     }
 
@@ -1566,8 +1620,21 @@ def spending_chart(customer_id: int = 1, cleared: bool = False, db: Session = De
     transactions = (
         db.query(Transaction)
         .filter(Transaction.customer_id == customer_id, Transaction.transaction_type == "Debit")
+        .order_by(Transaction.transaction_date.asc())
         .all()
     )
+
+    if int(customer_id) != 1 and transactions:
+        distinct_ym = sorted({(t.transaction_date.year, t.transaction_date.month) for t in transactions if t.transaction_date})
+        if len(distinct_ym) <= 2:
+            # 1–2 month statement (e.g. 16 Jun – 16 Jul): show date-by-date spending curve from the statement
+            date_buckets: dict[str, float] = {}
+            for t in transactions:
+                if t.transaction_date:
+                    label = t.transaction_date.strftime("%d %b")
+                    date_buckets[label] = date_buckets.get(label, 0.0) + float(t.amount)
+            if date_buckets:
+                return [{"month": k, "expense": round(v, 2)} for k, v in date_buckets.items()]
 
     months = {
         "Jan": 0.0,
@@ -1585,9 +1652,10 @@ def spending_chart(customer_id: int = 1, cleared: bool = False, db: Session = De
     }
 
     for t in transactions:
-        month = t.transaction_date.strftime("%b")
-        if month in months:
-            months[month] += float(t.amount)
+        if t.transaction_date:
+            month = t.transaction_date.strftime("%b")
+            if month in months:
+                months[month] += float(t.amount)
 
     return [
         {"month": k, "expense": round(v, 2)}

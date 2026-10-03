@@ -42,21 +42,46 @@ export default function UploadStatement() {
   const [isRefreshState, setIsRefreshState] = useState(false);
 
   useEffect(() => {
+    let isMounted = true;
     const candidate = resolveInitialUserForSlug(paramSlug);
-    if (!candidate) {
+    if (candidate) {
+      setUser(candidate);
+      const savedLang = localStorage.getItem("preferred_language") || candidate.preferred_language || "hi";
+      setLang(savedLang);
+    }
+
+    if (paramSlug && paramSlug !== "robert") {
+      const prefCid = candidate?.customer_id || candidate?.id || "";
+      fetch(`${API_BASE}/auth/resolve-slug/${encodeURIComponent(paramSlug)}${prefCid ? `?preferred_cid=${prefCid}` : ""}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((resolved) => {
+          if (!isMounted) return;
+          if (resolved && resolved.customer_id) {
+            setUser(resolved);
+            saveUserSession(resolved);
+          } else if (!candidate) {
+            navigate("/login");
+          }
+        })
+        .catch(() => {
+          if (isMounted && !candidate) {
+            navigate("/login");
+          }
+        });
+    } else if (!candidate) {
       navigate("/login");
       return;
     }
-    setUser(candidate);
-
-    const savedLang = localStorage.getItem("preferred_language") || candidate.preferred_language || "hi";
-    setLang(savedLang);
 
     // Check if redirected due to page refresh
     if (sessionStorage.getItem("refresh_redirect") === "true") {
       setIsRefreshState(true);
       sessionStorage.removeItem("refresh_redirect");
     }
+
+    return () => {
+      isMounted = false;
+    };
   }, [paramSlug, navigate]);
 
   const handleLanguageChange = (newLang) => {
@@ -99,9 +124,10 @@ export default function UploadStatement() {
     setLoading(true);
     setError("");
 
+    const activeCid = user.customer_id || user.id;
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("customer_id", user.customer_id || user.id);
+    formData.append("customer_id", activeCid);
     formData.append("country", user.country || "India");
 
     try {
@@ -123,17 +149,20 @@ export default function UploadStatement() {
 
       setSuccessResult(data);
 
-      // Update user with detected currency
+      const finalCid = data.customer_id || activeCid;
       const updatedUser = {
         ...user,
-        currency_code: data.currency_code,
-        currency_symbol: data.currency_symbol,
+        id: finalCid,
+        customer_id: finalCid,
+        statement_holder_name: data.account_holder_name || user.full_name,
+        currency_code: data.currency_code || user.currency_code,
+        currency_symbol: data.currency_symbol || user.currency_symbol,
         has_transactions: true,
       };
-      const userSlug = getUserSlug(updatedUser);
+      const userSlug = paramSlug || getUserSlug(updatedUser);
       saveUserSession(updatedUser);
       sessionStorage.setItem("hasActiveStatement", "true");
-      sessionStorage.setItem(`active_customer_id_${userSlug}`, String(updatedUser.customer_id || updatedUser.id));
+      sessionStorage.setItem(`active_customer_id_${userSlug}`, String(finalCid));
 
       setTimeout(() => {
         navigate(`/${userSlug}-dashboard`);
@@ -154,12 +183,13 @@ export default function UploadStatement() {
     setLoading(true);
     setError("");
 
+    const activeCid = user.customer_id || user.id;
     try {
       const res = await fetch(`${API_BASE}/statements/sample`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          customer_id: user.customer_id || user.id,
+          customer_id: activeCid,
           currency: user.currency_code || "INR",
           country: user.country || "India",
         }),
@@ -173,16 +203,20 @@ export default function UploadStatement() {
 
       setSuccessResult(data);
 
+      const finalCid = data.customer_id || activeCid;
       const updatedUser = {
         ...user,
-        currency_code: data.currency_code,
-        currency_symbol: data.currency_symbol,
+        id: finalCid,
+        customer_id: finalCid,
+        statement_holder_name: data.account_holder_name || user.full_name,
+        currency_code: data.currency_code || user.currency_code,
+        currency_symbol: data.currency_symbol || user.currency_symbol,
         has_transactions: true,
       };
-      const userSlug = getUserSlug(updatedUser);
+      const userSlug = paramSlug || getUserSlug(updatedUser);
       saveUserSession(updatedUser);
       sessionStorage.setItem("hasActiveStatement", "true");
-      sessionStorage.setItem(`active_customer_id_${userSlug}`, String(updatedUser.customer_id || updatedUser.id));
+      sessionStorage.setItem(`active_customer_id_${userSlug}`, String(finalCid));
 
       setTimeout(() => {
         navigate(`/${userSlug}-dashboard`);
