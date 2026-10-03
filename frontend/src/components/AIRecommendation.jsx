@@ -7,6 +7,7 @@ export default function AIRecommendation({
   customerId = 1,
   currencySymbol = "$",
   lang = "en",
+  cleared = false,
 }) {
   const [health, setHealth] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -15,7 +16,7 @@ export default function AIRecommendation({
     let isMounted = true;
     setLoading(true);
 
-    fetch(`${API_BASE}/ai/financial-health/${customerId}`)
+    fetch(`${API_BASE}/ai/financial-health/${customerId}${cleared ? "?cleared=true" : ""}`)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
@@ -36,7 +37,7 @@ export default function AIRecommendation({
     return () => {
       isMounted = false;
     };
-  }, [customerId]);
+  }, [customerId, cleared]);
 
   const score = health?.financial_health_score ?? (loading ? "..." : 80);
   const status = health?.status ?? (loading ? "Evaluating..." : "Good Standing");

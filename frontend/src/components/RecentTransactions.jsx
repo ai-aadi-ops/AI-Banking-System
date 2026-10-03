@@ -32,12 +32,13 @@ export default function RecentTransactions({
   currencySymbol = "$",
   currencyCode = "USD",
   lang = "en",
+  cleared = false,
 }) {
   const [transactions, setTransactions] = useState([]);
 
   useEffect(() => {
     let isMounted = true;
-    fetch(`${API_BASE}/transactions?customer_id=${customerId}`)
+    fetch(`${API_BASE}/transactions?customer_id=${customerId}${cleared ? "&cleared=true" : ""}`)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
@@ -66,7 +67,7 @@ export default function RecentTransactions({
     return () => {
       isMounted = false;
     };
-  }, [customerId]);
+  }, [customerId, cleared]);
 
   return (
     <div className="mt-10 rounded-2xl bg-slate-900 border border-slate-800 p-6">

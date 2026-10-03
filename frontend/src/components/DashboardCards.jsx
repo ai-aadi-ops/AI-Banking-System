@@ -13,6 +13,7 @@ export default function DashboardCards({
   currencySymbol = "$",
   currencyCode = "USD",
   lang = "en",
+  cleared = false,
 }) {
   const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -21,7 +22,7 @@ export default function DashboardCards({
     let isMounted = true;
     setLoading(true);
 
-    fetch(`${API_BASE}/dashboard?customer_id=${customerId}`)
+    fetch(`${API_BASE}/dashboard?customer_id=${customerId}${cleared ? "&cleared=true" : ""}`)
       .then((res) => {
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
@@ -47,7 +48,7 @@ export default function DashboardCards({
     return () => {
       isMounted = false;
     };
-  }, [customerId]);
+  }, [customerId, cleared]);
 
   const activeSym = dashboard?.currency_symbol || currencySymbol;
   const balanceVal = dashboard?.balance ?? 0;

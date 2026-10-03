@@ -446,10 +446,8 @@ def resolve_user_by_slug(slug: str, db: Session = Depends(get_db)):
     clean_slug = re.sub(r"[^a-z0-9_-]", "", clean_slug)
 
     if clean_slug in ("robert", "demo", "robertwilson"):
-        cust1 = db.query(Customer).filter(Customer.customer_id == 1).first()
-        if not cust1:
-            from app.seeder import seed_database
-            seed_database(db, force=False)
+        from app.seeder import ensure_robert_demo_data
+        ensure_robert_demo_data(db, force_restore=False)
         return {
             "id": 1,
             "customer_id": 1,
@@ -813,7 +811,10 @@ def cards(customer_id: Optional[int] = None, db: Session = Depends(get_db)):
 
 
 @app.get("/transactions")
-def transactions(customer_id: int = 1, db: Session = Depends(get_db)):
+def transactions(customer_id: int = 1, cleared: bool = False, db: Session = Depends(get_db)):
+    if customer_id == 1 and not cleared:
+        from app.seeder import ensure_robert_demo_data
+        ensure_robert_demo_data(db, force_restore=False)
     return db.query(Transaction).filter(Transaction.customer_id == customer_id).order_by(Transaction.transaction_date.desc()).all()
 
 
@@ -833,7 +834,11 @@ def loans(customer_id: Optional[int] = None, db: Session = Depends(get_db)):
 
 @app.get("/ai/analyze/{customer_id}")
 def analyze(customer_id: int,
+            cleared: bool = False,
             db: Session = Depends(get_db)):
+    if customer_id == 1 and not cleared:
+        from app.seeder import ensure_robert_demo_data
+        ensure_robert_demo_data(db, force_restore=False)
 
     transactions = (
         db.query(Transaction)
@@ -845,7 +850,11 @@ def analyze(customer_id: int,
 
 @app.get("/ai/financial-health/{customer_id}")
 def financial_health(customer_id: int,
+                     cleared: bool = False,
                      db: Session = Depends(get_db)):
+    if customer_id == 1 and not cleared:
+        from app.seeder import ensure_robert_demo_data
+        ensure_robert_demo_data(db, force_restore=False)
 
     customer = (
         db.query(Customer)
@@ -1043,6 +1052,11 @@ def ai_chat(
 ):
     customer_id = body.get("customer_id", 1)
     language = body.get("language", "en")
+    cleared = bool(body.get("cleared", False))
+
+    if int(customer_id) == 1 and not cleared:
+        from app.seeder import ensure_robert_demo_data
+        ensure_robert_demo_data(db, force_restore=False)
 
     customer = (
         db.query(Customer)
@@ -1163,7 +1177,11 @@ def ai_chat(
 
 
 @app.get("/dashboard")
-def get_dashboard(customer_id: int = 1, db: Session = Depends(get_db)):
+def get_dashboard(customer_id: int = 1, cleared: bool = False, db: Session = Depends(get_db)):
+    if customer_id == 1 and not cleared:
+        from app.seeder import ensure_robert_demo_data
+        ensure_robert_demo_data(db, force_restore=False)
+
     account = db.query(Account).filter(Account.customer_id == customer_id).first()
     customer = db.query(Customer).filter(Customer.customer_id == customer_id).first()
     user = db.query(User).filter(User.id == customer_id).first()
@@ -1260,7 +1278,10 @@ def get_dashboard(customer_id: int = 1, db: Session = Depends(get_db)):
 
 
 @app.get("/spending-chart")
-def spending_chart(customer_id: int = 1, db: Session = Depends(get_db)):
+def spending_chart(customer_id: int = 1, cleared: bool = False, db: Session = Depends(get_db)):
+    if customer_id == 1 and not cleared:
+        from app.seeder import ensure_robert_demo_data
+        ensure_robert_demo_data(db, force_restore=False)
 
     transactions = (
         db.query(Transaction)

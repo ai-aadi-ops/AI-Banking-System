@@ -152,11 +152,12 @@ def reset_postgres_sequences(db: Session):
 def seed_database(db: Session, force: bool = False):
     """
     Seed initial Customer, Account, Card, User, and Bank Transactions.
-    If force=False, only seeds if Customer table is empty.
+    If force=False, seeds or restores Robert Wilson (customer_id=1) whenever missing or cleared to 0.
     """
     customer_exists = db.query(Customer).filter(Customer.customer_id == 1).first()
+    account_exists = db.query(Account).filter(Account.customer_id == 1).first()
 
-    if customer_exists and not force:
+    if customer_exists and account_exists and not force:
         # Ensure Robert Wilson user exists even if customer/transactions were already seeded
         rw_user = db.query(User).filter(User.email.in_(["robert.wilson@demo.com", "robert.wilson@apexbank.com"])).first()
         if not rw_user:
@@ -180,9 +181,10 @@ def seed_database(db: Session, force: bool = False):
             except Exception:
                 db.rollback()
 
-        # Check if transactions exist
+        # Check if transactions and non-zero demo balance exist
         txn_count = db.query(Transaction).filter(Transaction.customer_id == 1).count()
-        if txn_count > 0:
+        has_balance = float(account_exists.balance or 0) > 0 and float(account_exists.monthly_salary or 0) > 0
+        if txn_count > 0 and has_balance:
             return {
                 "status": "already_seeded",
                 "message": "Database already contains customer and transaction data.",
@@ -202,7 +204,7 @@ def seed_database(db: Session, force: bool = False):
         except Exception:
             db.rollback()
 
-    # 2. Seed Customer: Robert Wilson
+    # 2. Seed or Restore Customer: Robert Wilson
     customer = db.query(Customer).filter(Customer.customer_id == 1).first()
     if not customer:
         customer = Customer(
@@ -220,8 +222,14 @@ def seed_database(db: Session, force: bool = False):
         )
         db.add(customer)
         db.flush()
+    else:
+        customer.full_name = "Robert Wilson"
+        customer.salary = 6500.00
+        customer.country = "United States"
+        customer.currency_code = "USD"
+        customer.currency_symbol = "$"
 
-    # 3. Seed Account: Savings account with $20,000 balance
+    # 3. Seed or Restore Account: Savings account with $20,000 balance
     account = db.query(Account).filter(Account.customer_id == 1).first()
     if not account:
         account = Account(
@@ -237,6 +245,12 @@ def seed_database(db: Session, force: bool = False):
         )
         db.add(account)
         db.flush()
+    else:
+        account.balance = 20000.00
+        account.savings = 5000.00
+        account.monthly_salary = 6500.00
+        account.currency_symbol = "$"
+        account.status = "ACTIVE"
 
     # 4. Seed Card
     card = db.query(Card).filter(Card.customer_id == 1).first()
@@ -322,9 +336,10 @@ def seed_database_if_empty(db: Session):
         rw_cust = db.query(Customer).filter(Customer.customer_id == 1).first()
         rw_user = db.query(User).filter(User.email.in_(["robert.wilson@demo.com", "robert.wilson@apexbank.com"])).first()
         rw_acc = db.query(Account).filter(Account.customer_id == 1).first()
+        tx_cnt = db.query(Transaction).filter(Transaction.customer_id == 1).count()
 
-        if not rw_cust or not rw_user or not rw_acc:
-            print("Demo data incomplete. Running seeder...")
+        if not rw_cust or not rw_user or not rw_acc or float(rw_acc.balance or 0) == 0.0 or tx_cnt == 0:
+            print("Demo data incomplete or cleared. Running seeder...")
             seed_database(db, force=False)
     except Exception as e:
         print(f"Auto-seeding warning/error: {e}")
@@ -332,3 +347,25 @@ def seed_database_if_empty(db: Session):
             db.rollback()
         except Exception:
             pass
+
+
+def ensure_robert_demo_data(db: Session, force_restore: bool = False):
+    """Ensure Robert Wilson (customer_id=1) has $20,000 balance and all demo transactions."""
+    try:
+        cust = db.query(Customer).filter(Customer.customer_id == 1).first()
+        acc = db.query(Account).filter(Account.customer_id == 1).first()
+        tx_count = db.query(Transaction).filter(Transaction.customer_id == 1).count()
+        if force_restore or not cust or not acc or float(acc.balance or 0) == 0.0 or tx_count == 0:
+            if force_restore and tx_count > 0:
+                db.query(Transaction).filter(Transaction.customer_id == 1).delete()
+                db.commit()
+            return seed_database(db, force=False)
+        return {"status": "ok", "balance": float(acc.balance), "transactions_count": tx_count}
+    except Exception as e:
+        print(f"ensure_robert_demo_data error: {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return {"status": "error", "detail": str(e)}
+

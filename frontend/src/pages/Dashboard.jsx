@@ -35,14 +35,17 @@ export default function Dashboard() {
   });
 
   const [clearing, setClearing] = useState(false);
+  const [demoCleared, setDemoCleared] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
 
     // 1. Direct Robert Wilson demo route: /robert-dashboard
+    // On page load / refresh / hard refresh, demoCleared is false so backend automatically restores $20,000 demo data
     if (userSlug === "robert") {
       setUser(DEMO_ROBERT_USER);
       setLang("en");
+      setDemoCleared(false);
       sessionStorage.setItem("hasActiveStatement", "true");
       return;
     }
@@ -107,18 +110,25 @@ export default function Dashboard() {
     const confirm = window.confirm(t("confirmClear", lang));
     if (!confirm) return;
 
+    const cid = user.customer_id || user.id || 1;
     setClearing(true);
     try {
       await fetch(`${API_BASE}/statements/clear`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          customer_id: user.customer_id || user.id,
+          customer_id: cid,
         }),
       });
 
-      sessionStorage.removeItem("hasActiveStatement");
-      navigate(`/${activeSlug}-dashboard/upload-statement`);
+      if (userSlug === "robert" || Number(cid) === 1) {
+        // For Demo account (Robert Wilson): show $0.00 on dashboard until page refresh/hard refresh,
+        // which will automatically restore the $20,000.00 demo data!
+        setDemoCleared(true);
+      } else {
+        sessionStorage.removeItem("hasActiveStatement");
+        navigate(`/${activeSlug}-dashboard/upload-statement`);
+      }
     } catch (err) {
       console.error("Failed to clear data:", err);
     } finally {
@@ -212,15 +222,15 @@ export default function Dashboard() {
       <section className="max-w-7xl mx-auto px-6 md:px-10 py-8">
         <DashboardHeader user={user} lang={lang} />
 
-        <DashboardCards customerId={customerId} currencySymbol={currencySymbol} currencyCode={currencyCode} lang={lang} />
+        <DashboardCards customerId={customerId} currencySymbol={currencySymbol} currencyCode={currencyCode} lang={lang} cleared={demoCleared} />
 
-        <SpendingChart customerId={customerId} currencySymbol={currencySymbol} lang={lang} />
+        <SpendingChart customerId={customerId} currencySymbol={currencySymbol} lang={lang} cleared={demoCleared} />
 
-        <RecentTransactions customerId={customerId} currencySymbol={currencySymbol} currencyCode={currencyCode} lang={lang} />
+        <RecentTransactions customerId={customerId} currencySymbol={currencySymbol} currencyCode={currencyCode} lang={lang} cleared={demoCleared} />
 
-        <AIRecommendation customerId={customerId} currencySymbol={currencySymbol} lang={lang} />
+        <AIRecommendation customerId={customerId} currencySymbol={currencySymbol} lang={lang} cleared={demoCleared} />
 
-        <AISpendingInsights customerId={customerId} currencySymbol={currencySymbol} currencyCode={currencyCode} lang={lang} />
+        <AISpendingInsights customerId={customerId} currencySymbol={currencySymbol} currencyCode={currencyCode} lang={lang} cleared={demoCleared} />
       </section>
     </div>
   );

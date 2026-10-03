@@ -14,6 +14,7 @@ export default function SpendingChart({
   customerId = 1,
   currencySymbol = "$",
   lang = "en",
+  cleared = false,
 }) {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -22,7 +23,7 @@ export default function SpendingChart({
     let isMounted = true;
     setLoading(true);
 
-    fetch(`${API_BASE}/spending-chart?customer_id=${customerId}`)
+    fetch(`${API_BASE}/spending-chart?customer_id=${customerId}${cleared ? "&cleared=true" : ""}`)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
@@ -42,7 +43,7 @@ export default function SpendingChart({
     return () => {
       isMounted = false;
     };
-  }, [customerId]);
+  }, [customerId, cleared]);
 
   const chartData = data && data.length > 0 ? data : [
     { month: "Jan", expense: 0 },

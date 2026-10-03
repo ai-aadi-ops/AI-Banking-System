@@ -8,12 +8,13 @@ export default function AISpendingInsights({
   currencySymbol = "$",
   currencyCode = "USD",
   lang = "en",
+  cleared = false,
 }) {
   const [data, setData] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
-    fetch(`${API_BASE}/ai/analyze/${customerId}`)
+    fetch(`${API_BASE}/ai/analyze/${customerId}${cleared ? "?cleared=true" : ""}`)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
@@ -31,7 +32,7 @@ export default function AISpendingInsights({
     return () => {
       isMounted = false;
     };
-  }, [customerId]);
+  }, [customerId, cleared]);
 
   if (!data || data.detail) return null;
 
