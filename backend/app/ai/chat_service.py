@@ -11,7 +11,11 @@ def chat_with_ai(
     currency_symbol="$",
     language="en",
 ):
-    monthly_salary = float(customer.salary) if customer and customer.salary else 0.0
+    monthly_salary = (
+        float(account.monthly_salary)
+        if account and getattr(account, "monthly_salary", 0)
+        else (float(customer.salary) if customer and customer.salary else 0.0)
+    )
     annual_salary = monthly_salary * 12
 
     current_balance = float(account.balance) if account and account.balance else 0.0

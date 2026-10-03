@@ -18,7 +18,7 @@ PERSONAL_LOAN_INTEREST_RATE = 10.5
 # Home loan
 HOME_LOAN_INTEREST_RATE = 7.5
 
-# Maximum monthly EMI allowed in this demo
+# Maximum monthly EMI allowed in this demo (base USD)
 MAX_EMI_AMOUNT = 2000.00
 
 # Maximum preferred EMI as percentage of monthly salary
@@ -124,21 +124,13 @@ def get_loan_configuration(product):
 def select_loan_tenure(
     loan_amount,
     monthly_salary,
-    product="Personal Loan"
+    product="Personal Loan",
+    currency_symbol="$"
 ):
     """
     Select the shortest available tenure where
     the calculated EMI is within the maximum
     affordable EMI limit.
-
-    Demo rule:
-        Maximum EMI = $2,000/month
-
-    Personal loans:
-        Up to 6 years
-
-    Home loans:
-        Up to 30 years
     """
 
     loan_amount = float(loan_amount)
@@ -148,8 +140,9 @@ def select_loan_tenure(
         get_loan_configuration(product)
     )
 
-    # Maximum EMI allowed by the demo
-    max_affordable_emi = MAX_EMI_AMOUNT
+    # Scale max EMI limit for INR vs USD
+    base_max = 50000.0 if currency_symbol == "₹" else MAX_EMI_AMOUNT
+    max_affordable_emi = max(base_max, monthly_salary * 0.5) if monthly_salary > 0 else base_max
 
     # Try shortest tenure first
     for tenure in tenure_options:
@@ -168,8 +161,7 @@ def select_loan_tenure(
                 True
             )
 
-    # Even the longest available tenure
-    # exceeds the maximum EMI.
+    # Even the longest available tenure exceeds the maximum EMI.
     tenure = tenure_options[-1]
 
     emi = calculate_emi(
@@ -185,18 +177,6 @@ def select_loan_tenure(
         False
     )
 
-    # Even the longest tenure is above
-    # preferred affordability limit.
-    tenure = tenure_options[-1]
-
-    emi = calculate_emi(
-        loan_amount,
-        interest_rate,
-        tenure
-    )
-
-    return tenure, emi, interest_rate, False
-
 
 # =========================================================
 # PURCHASE DETAILS EXTRACTION
@@ -205,25 +185,7 @@ def select_loan_tenure(
 def extract_purchase_details(question: str):
     """
     Extract purchase amount and product from
-    natural-language questions.
-
-    Supported amount formats:
-
-        $25,000
-        $25000
-        25000$
-        25,000$
-        25000 dollars
-        25000 dollar
-        25000 USD
-
-    Examples:
-
-        Can I buy a laptop worth $25,000?
-        Can I afford an iPhone for $8,000?
-        Can I purchase a car worth 30000$?
-        Can I buy a house worth $100000?
-        Can I buy a house worth 100000 dollars?
+    natural-language questions in any currency ($, ₹, £, €, etc.).
     """
 
     if not question:
@@ -235,12 +197,11 @@ def extract_purchase_details(question: str):
 
     amount_match = re.search(
         r"(?:"
-        r"\$\s*([0-9][0-9,]*(?:\.[0-9]+)?)"
+        r"(?:\$|₹|rs\.?|inr|usd|€|£)\s*([0-9][0-9,]*(?:\.[0-9]+)?)"
         r"|"
-        r"([0-9][0-9,]*(?:\.[0-9]+)?)\s*\$"
+        r"([0-9][0-9,]*(?:\.[0-9]+)?)\s*(?:\$|₹|rs\.?|inr|usd|€|£|dollars?|rupees?)"
         r"|"
-        r"([0-9][0-9,]*(?:\.[0-9]+)?)"
-        r"\s*(?:dollars?|usd)"
+        r"(?:worth|for|of)\s+([0-9][0-9,]*(?:\.[0-9]+)?)"
         r")",
         question,
         re.IGNORECASE
@@ -250,17 +211,12 @@ def extract_purchase_details(question: str):
 
     if amount_match:
         try:
-
             raw_amount = (
                 amount_match.group(1)
                 or amount_match.group(2)
                 or amount_match.group(3)
             )
-
-            amount = float(
-                raw_amount.replace(",", "")
-            )
-
+            amount = float(raw_amount.replace(",", ""))
         except (ValueError, TypeError):
             amount = None
 
@@ -279,6 +235,7 @@ def extract_purchase_details(question: str):
             "computer",
             "notebook",
             "pc",
+            "लैपटॉप",
         ]
     ):
         product = "Laptop"
@@ -293,9 +250,12 @@ def extract_purchase_details(question: str):
             "phone",
             "smartphone",
             "mobile",
+            "स्मार्टफोन",
+            "फोन",
+            "मोबाइल",
         ]
     ):
-        product = "iPhone"
+        product = "Smartphone" if "smartphone" in question_lower or "स्मार्टफोन" in question_lower else "iPhone"
         merchant = "Apple Demo Store"
 
     # House / Home / Property
@@ -306,6 +266,8 @@ def extract_purchase_details(question: str):
             "home",
             "property",
             "real estate",
+            "घर",
+            "मकान",
         ]
     ):
         product = "House"
@@ -319,6 +281,8 @@ def extract_purchase_details(question: str):
             "vehicle",
             "automobile",
             "suv",
+            "कार",
+            "गाड़ी",
         ]
     ):
         product = "Car"
@@ -331,6 +295,7 @@ def extract_purchase_details(question: str):
             "bike",
             "motorcycle",
             "scooter",
+            "बाइक",
         ]
     ):
         product = "Two-Wheeler"
@@ -342,6 +307,7 @@ def extract_purchase_details(question: str):
         for word in [
             "tv",
             "television",
+            "टीवी",
         ]
     ):
         product = "Smart TV"
@@ -353,6 +319,7 @@ def extract_purchase_details(question: str):
 
     return amount, product, merchant
 
+
 # =========================================================
 # LOAN OFFER
 # =========================================================
@@ -361,32 +328,19 @@ def build_loan_offer(
     balance,
     amount,
     monthly_salary,
-    product="Personal Loan"
+    product="Personal Loan",
+    currency_symbol="$"
 ):
     """
     Create a dynamically calculated loan offer.
-
-    The requested loan amount is treated as the
-    actual loan principal.
-
-    A loan offer is generated only when the
-    calculated EMI is <= $2,000/month.
     """
 
     balance = float(balance)
     amount = float(amount)
     monthly_salary = float(monthly_salary)
 
-    # =========================================================
-    # BASIC VALIDATION
-    # =========================================================
-
     if amount <= 0:
         return None
-
-    # =========================================================
-    # DETERMINE LOAN TYPE
-    # =========================================================
 
     is_home_loan = product == "House"
 
@@ -402,10 +356,6 @@ def build_loan_offer(
         else "Instant Personal Loan Offer"
     )
 
-    # =========================================================
-    # CALCULATE TENURE + EMI
-    # =========================================================
-
     (
         tenure,
         monthly_emi,
@@ -414,85 +364,42 @@ def build_loan_offer(
     ) = select_loan_tenure(
         amount,
         monthly_salary,
-        product
+        product,
+        currency_symbol=currency_symbol
     )
-
-    # =========================================================
-    # DO NOT GENERATE OFFER IF EMI IS TOO HIGH
-    # =========================================================
 
     if not emi_affordable:
         return None
 
-    # =========================================================
-    # HUMAN-READABLE TENURE
-    # =========================================================
-
     tenure_years = tenure / 12
 
     if tenure_years.is_integer():
-
-        tenure_display = (
-            f"{int(tenure_years)} years"
-        )
-
+        tenure_display = f"{int(tenure_years)} years"
     else:
-
-        tenure_display = (
-            f"{tenure} months"
-        )
-
-    # =========================================================
-    # RETURN LOAN OFFER
-    # =========================================================
+        tenure_display = f"{tenure} months"
 
     return {
-
         "type": "loan",
-
         "title": title,
-
-        "product": (
-            f"Pre-approved {loan_name}"
-        ),
-
-        "merchant": (
-            "AI Banking Credit Desk"
-        ),
-
-        "amount": round(
-            amount,
-            2
-        ),
-
+        "product": f"Pre-approved {loan_name}",
+        "merchant": "AI Banking Credit Desk",
+        "amount": round(amount, 2),
         "monthly_emi": monthly_emi,
-
         "tenure_months": tenure,
-
         "interest_rate": interest_rate,
-
         "discount_percent": 0,
-
         "loan_type": loan_name,
-
         "reason": (
-
-            f"AI has evaluated a "
-            f"{loan_name.lower()} of "
-            f"${amount:,.2f} at "
+            f"AI has evaluated a {loan_name.lower()} of "
+            f"{currency_symbol}{amount:,.2f} at "
             f"{interest_rate}% annual interest. "
-
             f"The estimated monthly EMI is "
-            f"${monthly_emi:,.2f} for "
-            f"{tenure_display}. "
-
-            f"This EMI is within the demo "
-            f"maximum EMI limit of "
-            f"${MAX_EMI_AMOUNT:,.2f} per month."
+            f"{currency_symbol}{monthly_emi:,.2f} for "
+            f"{tenure_display}."
         ),
-
         "cta": "Accept Loan Offer",
     }
+
 
 # =========================================================
 # PURCHASE OFFER
@@ -502,72 +409,41 @@ def build_purchase_offer(
     balance,
     amount,
     product,
-    merchant
+    merchant,
+    currency_symbol="$"
 ):
     """
     Create a product-specific purchase offer.
-
-    Normal purchase offers do NOT contain EMI.
     """
 
     discount_percent = 10
 
     discounted_price = round(
-        amount
-        * (
-            1 - discount_percent / 100
-        ),
+        amount * (1 - discount_percent / 100),
         2
     )
 
     return {
-
         "type": "purchase",
-
-        "title": (
-            f"{product} Purchase Offer"
-        ),
-
-        "product": (
-            f"Premium {product}"
-        ),
-
+        "title": f"{product} Purchase Offer",
+        "product": f"Premium {product}",
         "merchant": merchant,
-
-        "original_price": round(
-            amount,
-            2
-        ),
-
-        "discounted_price": (
-            discounted_price
-        ),
-
+        "original_price": round(amount, 2),
+        "discounted_price": discounted_price,
         "amount": discounted_price,
-
         "monthly_emi": 0,
-
         "tenure_months": 0,
-
         "interest_rate": 0,
-
-        "discount_percent": (
-            discount_percent
-        ),
-
+        "discount_percent": discount_percent,
         "reason": (
-
             f"Your available balance is "
-            f"${balance:,.2f}, which is sufficient "
+            f"{currency_symbol}{balance:,.2f}, which is sufficient "
             f"for the requested "
-            f"${amount:,.2f} "
+            f"{currency_symbol}{amount:,.2f} "
             f"{product.lower()}. "
-
-            f"AI found a "
-            f"{discount_percent}% "
-            f"demo discount offer."
+            f"AI found a {discount_percent}% "
+            f"partner discount offer."
         ),
-
         "cta": "Accept Discount Offer",
     }
 
@@ -581,34 +457,21 @@ def build_offer(
     account,
     spending,
     health,
-    question
+    question,
+    currency_symbol="$"
 ):
     """
     Decide whether an offer should be generated.
-
-    Rules:
-
-    1. Explicit loan question
-       -> Personal Loan Offer
-
-    2. Purchase + recognized product
-       -> Purchase Offer OR Loan Offer
-
-    3. Unrelated question
-       -> No Offer
     """
 
-    balance = float(
-        account.balance
+    balance = float(account.balance) if account and account.balance else 0.0
+    monthly_salary = (
+        float(account.monthly_salary)
+        if account and getattr(account, "monthly_salary", 0)
+        else (float(customer.salary) if customer and customer.salary else 0.0)
     )
 
-    monthly_salary = float(
-        customer.salary
-    )
-
-    q = (
-        question or ""
-    ).lower()
+    q = (question or "").lower()
 
     # =====================================================
     # EXPLICIT LOAN INTENT
@@ -624,6 +487,8 @@ def build_offer(
         "personal loan",
         "home loan",
         "mortgage",
+        "ऋण",
+        "लोन",
     ]
 
     has_loan_intent = any(
@@ -632,8 +497,6 @@ def build_offer(
     )
 
     if has_loan_intent:
-
-        # Detect whether this is a home loan
         is_home_loan = any(
             word in q
             for word in [
@@ -643,25 +506,18 @@ def build_offer(
                 "home",
                 "house",
                 "property",
+                "होम लोन",
+                "घर",
             ]
         )
 
-        product = (
-            "House"
-            if is_home_loan
-            else "Personal Loan"
-        )
+        product = "House" if is_home_loan else "Personal Loan"
 
-        # If user mentions an amount,
-        # use that amount. Otherwise use demo amount.
         amount_match = re.search(
             r"(?:"
-            r"\$\s*([0-9][0-9,]*(?:\.[0-9]+)?)"
+            r"(?:\$|₹|rs\.?|inr|usd|€|£)\s*([0-9][0-9,]*(?:\.[0-9]+)?)"
             r"|"
-            r"([0-9][0-9,]*(?:\.[0-9]+)?)\s*\$"
-            r"|"
-            r"([0-9][0-9,]*(?:\.[0-9]+)?)"
-            r"\s*(?:dollars?|usd)"
+            r"([0-9][0-9,]*(?:\.[0-9]+)?)\s*(?:\$|₹|rs\.?|inr|usd|€|£|dollars?|rupees?)"
             r")",
             q,
             re.IGNORECASE
@@ -670,35 +526,21 @@ def build_offer(
         loan_amount = None
 
         if amount_match:
-
             try:
-
-                raw_amount = (
-                    amount_match.group(1)
-                    or amount_match.group(2)
-                    or amount_match.group(3)
-                )
-
-                loan_amount = float(
-                    raw_amount.replace(",", "")
-                )
-
-            except (
-                ValueError,
-                TypeError
-            ):
+                raw_amount = amount_match.group(1) or amount_match.group(2)
+                loan_amount = float(raw_amount.replace(",", ""))
+            except (ValueError, TypeError):
                 loan_amount = None
 
         if loan_amount is None:
-            # No specific loan amount was requested.
-            # Provide AI advice only.
             return None
 
         return build_loan_offer(
             balance,
             loan_amount,
             monthly_salary,
-            product
+            product,
+            currency_symbol=currency_symbol
         )
 
     # =====================================================
@@ -706,13 +548,12 @@ def build_offer(
     # =====================================================
 
     purchase_keywords = [
-
         "buy",
         "purchase",
         "afford",
         "worth",
         "cost",
-
+        "item",
         # Hindi / Hinglish
         "kharid",
         "khareed",
@@ -729,68 +570,48 @@ def build_offer(
         "lena hai",
         "lena chahta",
         "lena chahti",
+        "खरीद",
+        "ले सकता",
+        "ले सकती",
     ]
 
     product_keywords = [
-
-        # Phones
         "iphone",
         "i phone",
         "ipad",
         "phone",
         "smartphone",
         "mobile",
-
-        # Computers
+        "item",
         "laptop",
         "computer",
         "macbook",
         "notebook",
         "pc",
-
-        # Vehicles
         "car",
         "vehicle",
         "suv",
         "bike",
         "motorcycle",
         "scooter",
-
-        # Home
         "house",
         "home",
         "property",
         "real estate",
-
-        # Electronics
         "tv",
         "television",
+        "स्मार्टफोन",
+        "लैपटॉप",
+        "फोन",
+        "कार",
+        "घर",
     ]
 
-    has_purchase_keyword = any(
-        word in q
-        for word in purchase_keywords
-    )
+    has_purchase_keyword = any(word in q for word in purchase_keywords)
+    has_product = any(word in q for word in product_keywords)
 
-    has_product = any(
-        word in q
-        for word in product_keywords
-    )
-
-    # =====================================================
-    # NO OFFER FOR UNRELATED QUESTIONS
-    # =====================================================
-
-    if not (
-        has_purchase_keyword
-        and has_product
-    ):
+    if not (has_purchase_keyword and has_product):
         return None
-
-
-    # =====================================================
-    # EXTRACT PURCHASE DETAILS
-    # =====================================================
 
     (
         purchase_amount,
@@ -798,53 +619,32 @@ def build_offer(
         merchant
     ) = extract_purchase_details(q)
 
-    # =====================================================
-    # DEFAULT PRODUCT PRICES
-    # =====================================================
-
     if purchase_amount is None:
-
-        if product == "iPhone":
-            purchase_amount = 7790.00
-
+        mult = 80.0 if currency_symbol == "₹" else 1.0
+        if product in ("iPhone", "Smartphone"):
+            purchase_amount = 1000.00 * mult
         elif product == "Laptop":
-            purchase_amount = 25000.00
-
+            purchase_amount = 1500.00 * mult
         elif product == "Car":
-            purchase_amount = 40000.00
-
+            purchase_amount = 25000.00 * mult
         elif product == "House":
-            purchase_amount = 100000.00
-
+            purchase_amount = 100000.00 * mult
         else:
             return None
 
-    # =====================================================
-    # PURCHASE EXCEEDS BALANCE
-    # -> LOAN OFFER
-    # =====================================================
-
     if purchase_amount > balance:
-
-        required_loan = (
-        purchase_amount - balance
-        )
-
         return build_loan_offer(
             balance,
             purchase_amount,
             monthly_salary,
-            product
+            product,
+            currency_symbol=currency_symbol
         )
-
-    # =====================================================
-    # PURCHASE IS AFFORDABLE
-    # -> PRODUCT OFFER
-    # =====================================================
 
     return build_purchase_offer(
         balance,
         purchase_amount,
         product,
-        merchant
+        merchant,
+        currency_symbol=currency_symbol
     )

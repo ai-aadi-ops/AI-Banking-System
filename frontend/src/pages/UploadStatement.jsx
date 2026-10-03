@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { API_BASE } from "../config";
 import { t, ALL_LANGUAGES } from "../utils/i18n";
 import {
@@ -14,13 +14,26 @@ import {
   Globe,
   Landmark,
 } from "lucide-react";
-import { getUserSlug } from "../utils/userSlug";
+import {
+  getUserSlug,
+  resolveInitialUserForSlug,
+  saveUserSession,
+} from "../utils/userSlug";
 
 export default function UploadStatement() {
   const navigate = useNavigate();
+  const params = useParams();
+  const rawSlug = params.userSlug || params["userSlug-dashboard"] || params["userSlug_dashboard"] || "";
+  const paramSlug = rawSlug.replace(/[-_]dashboard$/i, "").toLowerCase();
 
-  const [user, setUser] = useState(null);
-  const [lang, setLang] = useState("hi");
+  const [user, setUser] = useState(() => resolveInitialUserForSlug(paramSlug));
+  const [lang, setLang] = useState(() => {
+    try {
+      return localStorage.getItem("preferred_language") || "hi";
+    } catch {
+      return "hi";
+    }
+  });
   const [file, setFile] = useState(null);
   const [dragActive, setDragActive] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -29,15 +42,14 @@ export default function UploadStatement() {
   const [isRefreshState, setIsRefreshState] = useState(false);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem("user");
-    if (!storedUser) {
+    const candidate = resolveInitialUserForSlug(paramSlug);
+    if (!candidate) {
       navigate("/login");
       return;
     }
-    const parsedUser = JSON.parse(storedUser);
-    setUser(parsedUser);
+    setUser(candidate);
 
-    const savedLang = localStorage.getItem("preferred_language") || parsedUser.preferred_language || "hi";
+    const savedLang = localStorage.getItem("preferred_language") || candidate.preferred_language || "hi";
     setLang(savedLang);
 
     // Check if redirected due to page refresh
@@ -45,7 +57,7 @@ export default function UploadStatement() {
       setIsRefreshState(true);
       sessionStorage.removeItem("refresh_redirect");
     }
-  }, [navigate]);
+  }, [paramSlug, navigate]);
 
   const handleLanguageChange = (newLang) => {
     setLang(newLang);
@@ -101,7 +113,7 @@ export default function UploadStatement() {
       let data = {};
       try {
         data = await res.json();
-      } catch (e) {
+      } catch {
         data = { detail: `Server responded with status ${res.status}` };
       }
 
@@ -116,14 +128,16 @@ export default function UploadStatement() {
         ...user,
         currency_code: data.currency_code,
         currency_symbol: data.currency_symbol,
+        has_transactions: true,
       };
-      localStorage.setItem("user", JSON.stringify(updatedUser));
-      sessionStorage.setItem("hasActiveStatement", "true");
-
       const userSlug = getUserSlug(updatedUser);
+      saveUserSession(updatedUser);
+      sessionStorage.setItem("hasActiveStatement", "true");
+      sessionStorage.setItem(`active_customer_id_${userSlug}`, String(updatedUser.customer_id || updatedUser.id));
+
       setTimeout(() => {
         navigate(`/${userSlug}-dashboard`);
-      }, 800);
+      }, 600);
     } catch (err) {
       if (err.message && err.message.toLowerCase().includes("failed to fetch")) {
         setError("Unable to connect to the backend server. The service might be waking up on Render. Please wait 15 seconds and try uploading again.");
@@ -163,20 +177,24 @@ export default function UploadStatement() {
         ...user,
         currency_code: data.currency_code,
         currency_symbol: data.currency_symbol,
+        has_transactions: true,
       };
-      localStorage.setItem("user", JSON.stringify(updatedUser));
-      sessionStorage.setItem("hasActiveStatement", "true");
-
       const userSlug = getUserSlug(updatedUser);
+      saveUserSession(updatedUser);
+      sessionStorage.setItem("hasActiveStatement", "true");
+      sessionStorage.setItem(`active_customer_id_${userSlug}`, String(updatedUser.customer_id || updatedUser.id));
+
       setTimeout(() => {
         navigate(`/${userSlug}-dashboard`);
-      }, 1000);
+      }, 800);
     } catch (err) {
       setError(err.message || "Failed to load sample data.");
     } finally {
       setLoading(false);
     }
   };
+
+  const activeSlug = paramSlug || getUserSlug(user) || "user";
 
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col justify-between">
@@ -197,6 +215,13 @@ export default function UploadStatement() {
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate(`/${activeSlug}-dashboard`)}
+            className="text-xs bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 px-3.5 py-2 rounded-xl text-cyan-300 font-semibold transition cursor-pointer"
+          >
+            Dashboard →
+          </button>
+
           <div className="flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-300">
             <Globe size={14} className="text-cyan-400" />
             <select

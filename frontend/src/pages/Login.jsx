@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { API_BASE } from "../config";
 import { t, ALL_LANGUAGES } from "../utils/i18n";
 import { Landmark, Mail, Lock, Globe, Sparkles } from "lucide-react";
-import { getUserSlug } from "../utils/userSlug";
+import { getUserSlug, saveUserSession } from "../utils/userSlug";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -46,7 +46,7 @@ export default function Login() {
       let data = {};
       try {
         data = await res.json();
-      } catch (parseErr) {
+      } catch {
         data = { detail: `Server responded with status ${res.status}` };
       }
 
@@ -54,18 +54,34 @@ export default function Login() {
         throw new Error(data.detail || "Invalid login credentials");
       }
 
-      localStorage.setItem("isLoggedIn", "true");
-      localStorage.setItem("user", JSON.stringify(data.user));
-      localStorage.setItem("preferred_language", data.user.preferred_language || lang);
-
       const userSlug = getUserSlug(data.user);
+      saveUserSession(data.user);
+      localStorage.setItem("preferred_language", data.user.preferred_language || lang);
+      sessionStorage.setItem(`active_customer_id_${userSlug}`, String(data.user.customer_id || data.user.id));
 
       // If demo user Robert Wilson, go straight to dashboard
       if (data.user.email === "robert.wilson@demo.com") {
         sessionStorage.setItem("hasActiveStatement", "true");
         navigate(`/${userSlug}-dashboard`);
+        return;
+      }
+
+      // Check if user already has transactions
+      let hasTx = Boolean(data.user.has_transactions);
+      if (data.user.has_transactions === undefined) {
+        try {
+          const txRes = await fetch(`${API_BASE}/transactions?customer_id=${data.user.customer_id || data.user.id}`);
+          const txList = await txRes.json();
+          hasTx = Array.isArray(txList) && txList.length > 0;
+        } catch {
+          hasTx = false;
+        }
+      }
+
+      if (hasTx) {
+        sessionStorage.setItem("hasActiveStatement", "true");
+        navigate(`/${userSlug}-dashboard`);
       } else {
-        // Redirect to personalized statement upload
         navigate(`/${userSlug}-dashboard/upload-statement`);
       }
     } catch (err) {

@@ -348,6 +348,7 @@ def login_user(body: dict, db: Session = Depends(get_db)):
 
     cust = db.query(Customer).filter(Customer.email == user.email).first()
     cust_id = cust.customer_id if cust else user.id
+    tx_count = db.query(func.count(Transaction.transaction_id)).filter(Transaction.customer_id == cust_id).scalar() or 0
 
     return {
         "status": "success",
@@ -360,7 +361,8 @@ def login_user(body: dict, db: Session = Depends(get_db)):
             "preferred_language": user.preferred_language or "en",
             "currency_code": user.currency_code or "INR",
             "currency_symbol": user.currency_symbol or "₹",
-            "is_demo": False
+            "is_demo": False,
+            "has_transactions": tx_count > 0,
         },
         "token": f"token_{user.id}_{secrets.token_hex(8)}"
     }
@@ -389,9 +391,25 @@ def forgot_password(body: dict, db: Session = Depends(get_db)):
 
 @app.get("/auth/me")
 def get_current_user_info(customer_id: int = 1, db: Session = Depends(get_db)):
+    if int(customer_id) == 1:
+        return {
+            "id": 1,
+            "customer_id": 1,
+            "full_name": "Robert Wilson",
+            "email": "robert.wilson@demo.com",
+            "country": "United States",
+            "preferred_language": "en",
+            "currency_code": "USD",
+            "currency_symbol": "$",
+            "is_demo": True,
+            "has_transactions": True,
+        }
+
     user = db.query(User).filter(User.id == customer_id).first()
+    customer = db.query(Customer).filter(Customer.customer_id == customer_id).first()
+    tx_count = db.query(func.count(Transaction.transaction_id)).filter(Transaction.customer_id == customer_id).scalar() or 0
+
     if not user:
-        customer = db.query(Customer).filter(Customer.customer_id == customer_id).first()
         if customer:
             return {
                 "id": customer_id,
@@ -402,19 +420,103 @@ def get_current_user_info(customer_id: int = 1, db: Session = Depends(get_db)):
                 "preferred_language": "en",
                 "currency_code": getattr(customer, "currency_code", "INR"),
                 "currency_symbol": getattr(customer, "currency_symbol", "₹"),
+                "is_demo": False,
+                "has_transactions": tx_count > 0,
             }
         raise HTTPException(status_code=404, detail="User not found")
 
     return {
         "id": user.id,
-        "customer_id": user.id,
+        "customer_id": customer.customer_id if customer else user.id,
         "full_name": user.full_name,
         "email": user.email,
         "country": user.country or "India",
         "preferred_language": user.preferred_language or "en",
         "currency_code": user.currency_code or "INR",
         "currency_symbol": user.currency_symbol or "₹",
+        "is_demo": False,
+        "has_transactions": tx_count > 0,
     }
+
+
+@app.get("/auth/resolve-slug/{slug}")
+def resolve_user_by_slug(slug: str, db: Session = Depends(get_db)):
+    import re
+    clean_slug = re.sub(r"[-_]dashboard$", "", (slug or "").strip(), flags=re.IGNORECASE).lower()
+    clean_slug = re.sub(r"[^a-z0-9_-]", "", clean_slug)
+
+    if clean_slug in ("robert", "demo", "robertwilson"):
+        cust1 = db.query(Customer).filter(Customer.customer_id == 1).first()
+        if not cust1:
+            from app.seeder import seed_database
+            seed_database(db, force=False)
+        return {
+            "id": 1,
+            "customer_id": 1,
+            "full_name": "Robert Wilson",
+            "email": "robert.wilson@demo.com",
+            "country": "United States",
+            "preferred_language": "en",
+            "currency_code": "USD",
+            "currency_symbol": "$",
+            "is_demo": True,
+            "has_transactions": True,
+        }
+
+    def extract_slug(name_str: str, email_str: str = "") -> str:
+        raw = (name_str or (email_str.split("@")[0] if email_str else "") or "user").strip()
+        first = raw.split()[0] if raw.split() else "user"
+        return re.sub(r"[^a-z0-9_-]", "", first.lower()) or "user"
+
+    candidates = []
+    all_users = db.query(User).all()
+    for u in all_users:
+        if u.id == 1:
+            continue
+        u_slug = extract_slug(u.full_name, u.email)
+        if u_slug == clean_slug:
+            cust = db.query(Customer).filter(Customer.email == u.email).first() or db.query(Customer).filter(Customer.customer_id == u.id).first()
+            cid = cust.customer_id if cust else u.id
+            tx_cnt = db.query(func.count(Transaction.transaction_id)).filter(Transaction.customer_id == cid).scalar() or 0
+            candidates.append((tx_cnt > 0, tx_cnt, cid, {
+                "id": u.id,
+                "customer_id": cid,
+                "full_name": u.full_name,
+                "email": u.email,
+                "country": u.country or "India",
+                "preferred_language": u.preferred_language or "en",
+                "currency_code": u.currency_code or "INR",
+                "currency_symbol": u.currency_symbol or "₹",
+                "is_demo": False,
+                "has_transactions": tx_cnt > 0,
+            }))
+
+    all_customers = db.query(Customer).all()
+    seen_cids = {c[2] for c in candidates}
+    for c in all_customers:
+        if c.customer_id == 1 or c.customer_id in seen_cids:
+            continue
+        c_slug = extract_slug(c.full_name, c.email)
+        if c_slug == clean_slug:
+            tx_cnt = db.query(func.count(Transaction.transaction_id)).filter(Transaction.customer_id == c.customer_id).scalar() or 0
+            candidates.append((tx_cnt > 0, tx_cnt, c.customer_id, {
+                "id": c.customer_id,
+                "customer_id": c.customer_id,
+                "full_name": c.full_name,
+                "email": c.email,
+                "country": getattr(c, "country", "India") or "India",
+                "preferred_language": "en",
+                "currency_code": getattr(c, "currency_code", "INR") or "INR",
+                "currency_symbol": getattr(c, "currency_symbol", "₹") or "₹",
+                "is_demo": False,
+                "has_transactions": tx_cnt > 0,
+            }))
+
+    if candidates:
+        candidates.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
+        return candidates[0][3]
+
+    raise HTTPException(status_code=404, detail=f"No user found for slug '{clean_slug}'")
 
 
 # -------------------------------------------------------------
@@ -955,12 +1057,15 @@ def ai_chat(
     )
 
     user = db.query(User).filter(User.id == customer_id).first()
-    currency_symbol = (
-        getattr(account, "currency_symbol", None) or
-        getattr(customer, "currency_symbol", None) or
-        (user.currency_symbol if user else None) or
-        "₹"
-    )
+    if int(customer_id) == 1:
+        currency_symbol = "$"
+    else:
+        currency_symbol = (
+            getattr(account, "currency_symbol", None) or
+            getattr(customer, "currency_symbol", None) or
+            (user.currency_symbol if user else None) or
+            "₹"
+        )
     if not language and user and user.preferred_language:
         language = user.preferred_language
 
@@ -1029,6 +1134,7 @@ def ai_chat(
         spending,
         health,
         question,
+        currency_symbol=currency_symbol,
     )
 
     answer = chat_with_ai(

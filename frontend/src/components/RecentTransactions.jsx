@@ -2,9 +2,7 @@ import { useEffect, useState } from "react";
 import {
   ShoppingBag,
   Coffee,
-  CreditCard,
   ArrowDownLeft,
-  ArrowUpRight,
   Fuel,
   Tv,
   Home,
@@ -38,11 +36,16 @@ export default function RecentTransactions({
   const [transactions, setTransactions] = useState([]);
 
   useEffect(() => {
+    let isMounted = true;
     fetch(`${API_BASE}/transactions?customer_id=${customerId}`)
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
       .then((data) => {
+        if (!isMounted) return;
         if (Array.isArray(data)) {
-          const latest = data
+          const latest = [...data]
             .sort(
               (a, b) =>
                 new Date(b.transaction_date) -
@@ -55,13 +58,20 @@ export default function RecentTransactions({
           setTransactions([]);
         }
       })
-      .catch(console.error);
+      .catch((err) => {
+        console.warn("RecentTransactions fetch error:", err);
+        if (isMounted) setTransactions([]);
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, [customerId]);
 
   return (
     <div className="mt-10 rounded-2xl bg-slate-900 border border-slate-800 p-6">
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold">
+        <h2 className="text-2xl font-bold text-white">
           {t("recentTransactions", lang)}
         </h2>
         <span className="text-xs text-slate-400 bg-slate-800 px-3 py-1 rounded-full border border-slate-700">
@@ -75,13 +85,13 @@ export default function RecentTransactions({
         </div>
       ) : (
         <div className="space-y-4">
-          {transactions.map((item) => {
+          {transactions.map((item, idx) => {
             const Icon = getIcon(item.category);
             const isCredit = item.transaction_type === "Credit";
 
             return (
               <div
-                key={item.transaction_id || Math.random()}
+                key={item.transaction_id || `tx-${idx}`}
                 className="flex items-center justify-between border-b border-slate-800 pb-4"
               >
                 <div className="flex items-center gap-4">
@@ -116,4 +126,3 @@ export default function RecentTransactions({
     </div>
   );
 }
-

@@ -2,7 +2,12 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { API_BASE } from "../config";
 import { t, ALL_LANGUAGES } from "../utils/i18n";
-import { getUserSlug } from "../utils/userSlug";
+import {
+  getUserSlug,
+  DEMO_ROBERT_USER,
+  resolveInitialUserForSlug,
+  saveUserSession,
+} from "../utils/userSlug";
 import AISpendingInsights from "../components/AISpendingInsights";
 import DashboardHeader from "../components/DashboardHeader";
 import DashboardCards from "../components/DashboardCards";
@@ -17,18 +22,13 @@ export default function Dashboard() {
   const rawSlug = params.userSlug || params["userSlug-dashboard"] || params["userSlug_dashboard"] || "";
   const userSlug = rawSlug.replace(/[-_]dashboard$/i, "").toLowerCase();
 
-  const [user, setUser] = useState(() => {
-    try {
-      const stored = localStorage.getItem("user");
-      return stored ? JSON.parse(stored) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [user, setUser] = useState(() => resolveInitialUserForSlug(userSlug));
 
   const [lang, setLang] = useState(() => {
     try {
-      return localStorage.getItem("preferred_language") || "en";
+      const initialU = resolveInitialUserForSlug(userSlug);
+      if (userSlug === "robert") return "en";
+      return localStorage.getItem("preferred_language") || initialU?.preferred_language || "en";
     } catch {
       return "en";
     }
@@ -37,53 +37,55 @@ export default function Dashboard() {
   const [clearing, setClearing] = useState(false);
 
   useEffect(() => {
-    // 1. Direct Robert Wilson demo link support: /robert-dashboard
-    if (userSlug === "robert" && (!user || user.email !== "robert.wilson@demo.com")) {
-      const demoUser = {
-        id: 1,
-        customer_id: 1,
-        full_name: "Robert Wilson",
-        email: "robert.wilson@demo.com",
-        country: "United States",
-        preferred_language: "en",
-        currency_code: "USD",
-        currency_symbol: "$",
-        is_demo: true,
-      };
-      localStorage.setItem("isLoggedIn", "true");
-      localStorage.setItem("user", JSON.stringify(demoUser));
-      localStorage.setItem("preferred_language", "en");
-      sessionStorage.setItem("hasActiveStatement", "true");
-      setUser(demoUser);
+    let isMounted = true;
+
+    // 1. Direct Robert Wilson demo route: /robert-dashboard
+    if (userSlug === "robert") {
+      setUser(DEMO_ROBERT_USER);
       setLang("en");
+      sessionStorage.setItem("hasActiveStatement", "true");
       return;
     }
 
-    // 2. Regular user session validation
-    const storedUser = localStorage.getItem("user");
-    const isLoggedIn = localStorage.getItem("isLoggedIn");
-
-    if (!isLoggedIn || !storedUser) {
-      navigate("/login");
-      return;
-    }
-
-    try {
-      const parsedUser = JSON.parse(storedUser);
-      setUser(parsedUser);
-
-      const savedLang = localStorage.getItem("preferred_language") || parsedUser.preferred_language || "en";
+    // 2. Synchronize initial user for this slug
+    const localCandidate = resolveInitialUserForSlug(userSlug);
+    if (localCandidate) {
+      setUser(localCandidate);
+      const savedLang = localStorage.getItem("preferred_language") || localCandidate.preferred_language || "en";
       setLang(savedLang);
       sessionStorage.setItem("hasActiveStatement", "true");
+    }
 
-      // Verify that URL slug matches current user; if not and not demo, align to user's slug
-      const expectedSlug = getUserSlug(parsedUser);
-      if (userSlug && userSlug !== expectedSlug && userSlug !== "robert") {
-        navigate(`/${expectedSlug}-dashboard`, { replace: true });
-      }
-    } catch (e) {
+    // 3. Query backend /auth/resolve-slug/{userSlug} to ensure we use the profile with uploaded transactions
+    if (userSlug) {
+      const activeSessionCid = sessionStorage.getItem(`active_customer_id_${userSlug}`);
+      fetch(`${API_BASE}/auth/resolve-slug/${encodeURIComponent(userSlug)}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((resolved) => {
+          if (!isMounted) return;
+          if (resolved && resolved.customer_id) {
+            if (!activeSessionCid || !localCandidate || localCandidate.customer_id === 1) {
+              setUser(resolved);
+              saveUserSession(resolved);
+              sessionStorage.setItem("hasActiveStatement", "true");
+            }
+          } else if (!localCandidate) {
+            navigate("/login");
+          }
+        })
+        .catch(() => {
+          if (!isMounted) return;
+          if (!localCandidate) {
+            navigate("/login");
+          }
+        });
+    } else if (!localCandidate) {
       navigate("/login");
     }
+
+    return () => {
+      isMounted = false;
+    };
   }, [userSlug, navigate]);
 
   const handleLanguageChange = (newLang) => {
@@ -98,7 +100,7 @@ export default function Dashboard() {
     navigate("/login");
   };
 
-  const activeSlug = getUserSlug(user) || userSlug || "user";
+  const activeSlug = userSlug || getUserSlug(user) || "user";
 
   const handleClearData = async () => {
     if (!user) return;

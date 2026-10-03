@@ -46,9 +46,15 @@ def generate_local_advisor_fallback(prompt: str) -> str:
     bal = f"{currency}20,000"
     if "current account balance:" in p:
         try:
-            bal_lines = [l for l in prompt.splitlines() if "current account balance:" in l.lower()]
-            if bal_lines:
-                bal = bal_lines[0].split(":")[-1].strip()
+            lines = prompt.splitlines()
+            for idx, l in enumerate(lines):
+                if "current account balance:" in l.lower():
+                    after_colon = l.split(":")[-1].strip()
+                    if after_colon:
+                        bal = after_colon
+                    elif idx + 1 < len(lines) and lines[idx + 1].strip():
+                        bal = lines[idx + 1].strip()
+                    break
         except Exception:
             pass
 

@@ -2,8 +2,13 @@ import { useState, useEffect } from "react";
 import { API_BASE } from "../config";
 import ReactMarkdown from "react-markdown";
 import { useNavigate, useParams } from "react-router-dom";
-import { formatCurrency, t } from "../utils/i18n";
-import { getUserSlug } from "../utils/userSlug";
+import { formatCurrency } from "../utils/i18n";
+import {
+  getUserSlug,
+  DEMO_ROBERT_USER,
+  resolveInitialUserForSlug,
+  saveUserSession,
+} from "../utils/userSlug";
 
 export default function Advisor() {
   const navigate = useNavigate();
@@ -11,18 +16,13 @@ export default function Advisor() {
   const rawSlug = params.userSlug || params["userSlug-dashboard"] || params["userSlug_dashboard"] || "";
   const userSlug = rawSlug.replace(/[-_]dashboard$/i, "").toLowerCase();
 
-  const [user, setUser] = useState(() => {
-    try {
-      const stored = localStorage.getItem("user");
-      return stored ? JSON.parse(stored) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [user, setUser] = useState(() => resolveInitialUserForSlug(userSlug));
 
   const [lang, setLang] = useState(() => {
     try {
-      return localStorage.getItem("preferred_language") || "en";
+      const initialU = resolveInitialUserForSlug(userSlug);
+      if (userSlug === "robert") return "en";
+      return localStorage.getItem("preferred_language") || initialU?.preferred_language || "en";
     } catch {
       return "en";
     }
@@ -35,36 +35,58 @@ export default function Advisor() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (userSlug === "robert" && (!user || user.email !== "robert.wilson@demo.com")) {
-      const demoUser = {
-        id: 1,
-        customer_id: 1,
-        full_name: "Robert Wilson",
-        email: "robert.wilson@demo.com",
-        country: "United States",
-        preferred_language: "en",
-        currency_code: "USD",
-        currency_symbol: "$",
-        is_demo: true,
-      };
-      localStorage.setItem("isLoggedIn", "true");
-      localStorage.setItem("user", JSON.stringify(demoUser));
-      setUser(demoUser);
-    }
-  }, [userSlug, user]);
+    let isMounted = true;
 
-  const activeSlug = getUserSlug(user) || userSlug || "user";
-  const currencySymbol = user?.currency_symbol || "$";
-  const currencyCode = user?.currency_code || "USD";
-  const customerId = user?.customer_id || user?.id || 1;
+    if (userSlug === "robert") {
+      setUser(DEMO_ROBERT_USER);
+      setLang("en");
+      return;
+    }
+
+    const localCandidate = resolveInitialUserForSlug(userSlug);
+    if (localCandidate) {
+      setUser(localCandidate);
+      const savedLang = localStorage.getItem("preferred_language") || localCandidate.preferred_language || "en";
+      setLang(savedLang);
+    }
+
+    if (userSlug) {
+      const activeSessionCid = sessionStorage.getItem(`active_customer_id_${userSlug}`);
+      fetch(`${API_BASE}/auth/resolve-slug/${encodeURIComponent(userSlug)}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((resolved) => {
+          if (!isMounted) return;
+          if (resolved && resolved.customer_id) {
+            if (!activeSessionCid || !localCandidate || localCandidate.customer_id === 1) {
+              setUser(resolved);
+              saveUserSession(resolved);
+            }
+          }
+        })
+        .catch((err) => {
+          console.warn("Advisor slug resolve warning:", err);
+        });
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, [userSlug]);
+
+  const activeSlug = userSlug || getUserSlug(user) || "user";
+  const currencySymbol = user?.currency_symbol || (activeSlug === "robert" ? "$" : "₹");
+  const currencyCode = user?.currency_code || (activeSlug === "robert" ? "USD" : "INR");
+  const customerId = user?.customer_id || user?.id || (activeSlug === "robert" ? 1 : 8);
+
+  const sampleAmount = currencySymbol === "₹" ? "80,000" : "1,200";
 
   const suggestions = lang === "hi" ? [
-    `क्या मैं इस महीने ${currencySymbol}80,000 का स्मार्टफोन खरीद सकता हूँ?`,
+    `क्या मैं इस महीने ${currencySymbol}${sampleAmount} का स्मार्टफोन खरीद सकता हूँ?`,
     "मैं अपने बैंक खाते से अधिक पैसे कैसे बचा सकता हूँ?",
     "क्या मुझे व्यक्तिगत ऋण (Personal Loan) लेना चाहिए?",
     "मेरी वित्तीय स्थिति के अनुसार मुझे निवेश सलाह दें।",
   ] : [
-    `Can I afford an item worth ${currencySymbol}1,200 this month?`,
+    `Can I afford a smartphone worth ${currencySymbol}${sampleAmount} this month?`,
     "How can I save more money every month?",
     "Should I apply for a personal loan?",
     "Give me investment advice based on my balance.",
@@ -90,9 +112,10 @@ export default function Advisor() {
       });
 
       const data = await res.json();
-      setAnswer(data.answer);
-      setOffer(data.offer);
+      setAnswer(data.answer || data.reply || "No response received from AI Advisor.");
+      setOffer(data.offer || null);
     } catch (err) {
+      console.warn("Advisor chat error:", err);
       setAnswer("Unable to connect to AI Advisor. Please try again.");
       setOffer(null);
     }
@@ -117,7 +140,7 @@ export default function Advisor() {
       });
 
       const data = await res.json();
-      
+
       if (data.status === "SUCCESS") {
         navigate(data.redirect_url);
       } else if (data.status === "LOAN_RECOMMENDED") {
@@ -127,6 +150,7 @@ export default function Advisor() {
         setAnswer(`${answer}\n\n${data.message || "Offer could not be completed."}`);
       }
     } catch (err) {
+      console.warn("Accept offer error:", err);
       setAnswer(`${answer}\n\nUnable to complete the demo offer right now.`);
     }
 
@@ -148,13 +172,19 @@ export default function Advisor() {
           margin: "auto",
         }}
       >
-        <div className="mb-6">
+        <div className="mb-6 flex items-center justify-between flex-wrap gap-4">
           <button
             onClick={() => navigate(`/${activeSlug}-dashboard`)}
             className="rounded-xl bg-gradient-to-r from-red-600 to-red-500 px-5 py-2 font-semibold text-white shadow-lg shadow-red-500/40 hover:from-red-700 hover:to-red-600 transition-all duration-300 cursor-pointer flex items-center gap-2"
           >
             ← Back to Dashboard
           </button>
+
+          {user && (
+            <span className="text-sm text-cyan-300 bg-slate-900 border border-slate-700 px-4 py-1.5 rounded-full">
+              Account: <strong>{user.full_name}</strong> ({currencySymbol} {currencyCode})
+            </span>
+          )}
         </div>
 
         <div
@@ -223,7 +253,7 @@ export default function Advisor() {
             rows="5"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
-            placeholder={`Example: Can I buy a laptop worth ${currencySymbol}80,000 this month?`}
+            placeholder={`Example: Can I buy a laptop worth ${currencySymbol}${sampleAmount} this month?`}
             style={{
               width: "100%",
               borderRadius: 12,

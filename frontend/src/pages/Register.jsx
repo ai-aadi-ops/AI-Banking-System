@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { API_BASE } from "../config";
 import { COUNTRIES, INDIAN_LANGUAGES, ALL_LANGUAGES, t } from "../utils/i18n";
 import { Globe, User, Mail, Lock, Landmark } from "lucide-react";
-import { getUserSlug } from "../utils/userSlug";
+import { getUserSlug, saveUserSession } from "../utils/userSlug";
 
 export default function Register() {
   const navigate = useNavigate();
@@ -55,7 +55,7 @@ export default function Register() {
       let data = {};
       try {
         data = await res.json();
-      } catch (parseErr) {
+      } catch {
         data = { detail: `Server responded with status ${res.status}` };
       }
 
@@ -64,12 +64,12 @@ export default function Register() {
       }
 
       // Save user session
-      localStorage.setItem("isLoggedIn", "true");
-      localStorage.setItem("user", JSON.stringify(data.user));
+      const userSlug = getUserSlug(data.user);
+      saveUserSession(data.user);
       localStorage.setItem("preferred_language", data.user.preferred_language || selectedLanguage);
+      sessionStorage.setItem(`active_customer_id_${userSlug}`, String(data.user.customer_id || data.user.id));
 
       // Navigate to personalized statement upload
-      const userSlug = getUserSlug(data.user);
       navigate(`/${userSlug}-dashboard/upload-statement`);
     } catch (err) {
       if (err.message && err.message.toLowerCase().includes("failed to fetch")) {
