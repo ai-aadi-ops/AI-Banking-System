@@ -7,7 +7,9 @@ import { getUserSlug } from "../utils/userSlug";
 
 export default function Advisor() {
   const navigate = useNavigate();
-  const { userSlug } = useParams();
+  const params = useParams();
+  const rawSlug = params.userSlug || params["userSlug-dashboard"] || params["userSlug_dashboard"] || "";
+  const userSlug = rawSlug.replace(/[-_]dashboard$/i, "").toLowerCase();
 
   const [user, setUser] = useState(() => {
     try {

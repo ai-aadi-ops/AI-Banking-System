@@ -83,9 +83,13 @@ function App() {
 
         {/* Personalized Dynamic User Routes */}
         <Route path="/:userSlug-dashboard" element={<Dashboard />} />
+        <Route path="/:userSlug_dashboard" element={<Dashboard />} />
         <Route path="/:userSlug-dashboard/ai-advisor" element={<Advisor />} />
+        <Route path="/:userSlug_dashboard/ai-advisor" element={<Advisor />} />
         <Route path="/:userSlug-dashboard/ai-advisior" element={<Advisor />} />
+        <Route path="/:userSlug_dashboard/ai-advisior" element={<Advisor />} />
         <Route path="/:userSlug-dashboard/upload-statement" element={<UploadStatement />} />
+        <Route path="/:userSlug_dashboard/upload-statement" element={<UploadStatement />} />
 
         {/* Legacy route redirects */}
         <Route path="/dashboard" element={<DashboardRedirect />} />

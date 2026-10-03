@@ -10,6 +10,7 @@ import {
   Home,
 } from "lucide-react";
 import { API_BASE } from "../config";
+import { formatCurrency, t } from "../utils/i18n";
 
 const getIcon = (category) => {
   switch (category) {
