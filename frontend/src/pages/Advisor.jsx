@@ -33,6 +33,7 @@ export default function Advisor() {
   const [offer, setOffer] = useState(null);
   const [accepting, setAccepting] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [deleteStage, setDeleteStage] = useState("none");
 
   useEffect(() => {
     let isMounted = true;
@@ -77,6 +78,7 @@ export default function Advisor() {
   const currencySymbol = user?.currency_symbol || (activeSlug === "robert" ? "$" : "₹");
   const currencyCode = user?.currency_code || (activeSlug === "robert" ? "USD" : "INR");
   const customerId = user?.customer_id || user?.id || (activeSlug === "robert" ? 1 : 8);
+  const isDemoAccount = activeSlug === "robert" || Number(customerId) === 1;
 
   const sampleAmount = currencySymbol === "₹" ? "80,000" : "1,200";
 
@@ -85,11 +87,13 @@ export default function Advisor() {
     "मैं अपने बैंक खाते से अधिक पैसे कैसे बचा सकता हूँ?",
     "क्या मुझे व्यक्तिगत ऋण (Personal Loan) लेना चाहिए?",
     "मेरी वित्तीय स्थिति के अनुसार मुझे निवेश सलाह दें।",
+    "मेरा खाता हटाएं (Delete my account)",
   ] : [
     `Can I afford a smartphone worth ${currencySymbol}${sampleAmount} this month?`,
     "How can I save more money every month?",
     "Should I apply for a personal loan?",
     "Give me investment advice based on my balance.",
+    "Delete my account",
   ];
 
   async function askAI(q = question) {
@@ -108,12 +112,31 @@ export default function Advisor() {
           customer_id: customerId,
           question: q,
           language: lang,
+          delete_stage: deleteStage,
         }),
       });
 
       const data = await res.json();
       setAnswer(data.answer || data.reply || "No response received from AI Advisor.");
       setOffer(data.offer || null);
+
+      if (data.delete_step) {
+        setDeleteStage(data.delete_step);
+        if (data.delete_step !== "none") {
+          setQuestion("");
+        }
+      }
+
+      if (data.account_deleted || data.delete_step === "deleted") {
+        localStorage.removeItem("isLoggedIn");
+        localStorage.removeItem("user");
+        localStorage.removeItem(`user_by_slug_${activeSlug}`);
+        sessionStorage.removeItem("hasActiveStatement");
+        sessionStorage.removeItem(`active_customer_id_${activeSlug}`);
+        setTimeout(() => {
+          navigate("/register");
+        }, 1600);
+      }
     } catch (err) {
       console.warn("Advisor chat error:", err);
       setAnswer("Unable to connect to AI Advisor. Please try again.");
@@ -226,9 +249,9 @@ export default function Advisor() {
               key={item}
               onClick={() => askAI(item)}
               style={{
-                background: "#172554",
+                background: item.toLowerCase().includes("delete") ? "#450a0a" : "#172554",
                 color: "white",
-                border: "none",
+                border: item.toLowerCase().includes("delete") ? "1px solid #ef4444" : "none",
                 borderRadius: "25px",
                 padding: "10px 18px",
                 cursor: "pointer",
@@ -249,11 +272,45 @@ export default function Advisor() {
         >
           <h2>💬 Ask Your AI Advisor</h2>
 
+          {deleteStage === "convinced_once" && (
+            <div className="mt-3 mb-2 rounded-xl bg-amber-500/15 border border-amber-500/40 p-3 text-sm text-amber-200 flex items-center justify-between flex-wrap gap-2">
+              <span>⚠️ AI Advisor asked you to reconsider deleting your account. Still want to delete?</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => askAI("Yes, delete my account")}
+                  className="rounded-lg bg-red-600 hover:bg-red-700 px-3 py-1 text-xs font-bold text-white cursor-pointer"
+                >
+                  Yes, Still Delete Account
+                </button>
+                <button
+                  onClick={() => askAI("cancel")}
+                  className="rounded-lg bg-slate-700 hover:bg-slate-600 px-3 py-1 text-xs font-semibold text-white cursor-pointer"
+                >
+                  Keep My Account
+                </button>
+              </div>
+            </div>
+          )}
+
+          {deleteStage === "awaiting_password" && (
+            <div className="mt-3 mb-2 rounded-xl bg-red-500/15 border border-red-500/40 p-3 text-sm text-red-200">
+              {isDemoAccount
+                ? "🛡️ Demo Account Protection: Enter the Admin Password below and click Ask AI to delete the demo account (or type 'cancel')."
+                : "🔐 Security Verification: Enter your account login password below and click Ask AI to permanently delete your account (or type 'cancel')."}
+            </div>
+          )}
+
           <textarea
             rows="5"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
-            placeholder={`Example: Can I buy a laptop worth ${currencySymbol}${sampleAmount} this month?`}
+            placeholder={
+              deleteStage === "awaiting_password"
+                ? isDemoAccount
+                  ? "Enter Admin Password to confirm Demo Account deletion..."
+                  : "Enter your account login password to confirm deletion..."
+                : `Example: Can I buy a laptop worth ${currencySymbol}${sampleAmount} this month?`
+            }
             style={{
               width: "100%",
               borderRadius: 12,
@@ -262,7 +319,7 @@ export default function Advisor() {
               marginTop: 15,
               background: "#1e293b",
               color: "#fff",
-              border: "1px solid #334155",
+              border: deleteStage === "awaiting_password" ? "1px solid #ef4444" : "1px solid #334155",
             }}
           />
 
@@ -272,7 +329,7 @@ export default function Advisor() {
             style={{
               marginTop: 20,
               padding: "14px 35px",
-              background: "#06b6d4",
+              background: deleteStage === "awaiting_password" ? "#dc2626" : "#06b6d4",
               color: "white",
               border: "none",
               borderRadius: 10,
@@ -282,7 +339,11 @@ export default function Advisor() {
               opacity: loading ? 0.7 : 1,
             }}
           >
-            {loading ? "🤖 Thinking..." : "🚀 Ask AI"}
+            {loading
+              ? "🤖 Thinking..."
+              : deleteStage === "awaiting_password"
+              ? "🔐 Verify Password & Delete Account"
+              : "🚀 Ask AI"}
           </button>
 
           {answer && (

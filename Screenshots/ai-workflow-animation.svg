@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 220" width="100%" height="220">
+  <defs>
+    <linearGradient id="flowBg" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#090d16" />
+      <stop offset="100%" stop-color="#0f172a" />
+    </linearGradient>
+    <style>
+      .box { fill: #1e293b; stroke: #06b6d4; stroke-width: 1.5; }
+      .step-num { font-family: 'Segoe UI', sans-serif; font-size: 12px; font-weight: 700; fill: #22d3ee; }
+      .step-title { font-family: 'Segoe UI', sans-serif; font-size: 16px; font-weight: 700; fill: #ffffff; }
+      .step-desc { font-family: 'Segoe UI', sans-serif; font-size: 12px; fill: #94a3b8; }
+      .flow-line { stroke: #38bdf8; stroke-width: 3; stroke-dasharray: 8 6; animation: dash 1.5s linear infinite; }
+      @keyframes dash {
+        to { stroke-dashoffset: -28; }
+      }
+    </style>
+  </defs>
+
+  <rect width="1100" height="220" rx="18" fill="url(#flowBg)" stroke="#1e293b" stroke-width="2" />
+
+  <!-- Animated Connector Lines -->
+  <line x1="250" y1="110" x2="305" y2="110" class="flow-line" />
+  <line x1="525" y1="110" x2="580" y2="110" class="flow-line" />
+  <line x1="800" y1="110" x2="855" y2="110" class="flow-line" />
+
+  <!-- Step 1 -->
+  <g transform="translate(30, 40)">
+    <rect width="220" height="140" rx="14" class="box" />
+    <text x="20" y="32" class="step-num">STEP 01 • AUTH &amp; LOCALE</text>
+    <text x="20" y="62" class="step-title">🔐 Sign Up / Demo</text>
+    <text x="20" y="90" class="step-desc">Select Country, Currency</text>
+    <text x="20" y="110" class="step-desc">(&#8377;, $, €, £) &amp; Language</text>
+  </g>
+
+  <!-- Step 2 -->
+  <g transform="translate(305, 40)">
+    <rect width="220" height="140" rx="14" class="box" />
+    <text x="20" y="32" class="step-num">STEP 02 • INGESTION</text>
+    <text x="20" y="62" class="step-title">📄 Upload Statement</text>
+    <text x="20" y="90" class="step-desc">PDF, Excel/CSV, or Image</text>
+    <text x="20" y="110" class="step-desc">Parsed via AI &amp; OCR</text>
+  </g>
+
+  <!-- Step 3 -->
+  <g transform="translate(580, 40)">
+    <rect width="220" height="140" rx="14" class="box" />
+    <text x="20" y="32" class="step-num">STEP 03 • ANALYTICS</text>
+    <text x="20" y="62" class="step-title">📊 Custom Dashboard</text>
+    <text x="20" y="90" class="step-desc">/<tspan fill="#38bdf8">name</tspan>-dashboard with</text>
+    <text x="20" y="110" class="step-desc">Live Charts &amp; Health Score</text>
+  </g>
+
+  <!-- Step 4 -->
+  <g transform="translate(855, 40)">
+    <rect width="215" height="140" rx="14" class="box" />
+    <text x="20" y="32" class="step-num">STEP 04 • AI ADVISOR</text>
+    <text x="20" y="62" class="step-title">🤖 Smart Advisor</text>
+    <text x="20" y="90" class="step-desc">EMI/Loan Offers, Advice &amp;</text>
+    <text x="20" y="110" class="step-desc">Protected Account Control</text>
+  </g>
+</svg>

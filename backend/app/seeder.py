@@ -181,10 +181,14 @@ def seed_database(db: Session, force: bool = False):
             except Exception:
                 db.rollback()
 
-        # Check if transactions and non-zero demo balance exist
+        # Check if transactions and exact $20,000 demo balance exist
         txn_count = db.query(Transaction).filter(Transaction.customer_id == 1).count()
-        has_balance = float(account_exists.balance or 0) > 0 and float(account_exists.monthly_salary or 0) > 0
-        if txn_count > 0 and has_balance:
+        has_exact_demo_balance = (
+            round(float(account_exists.balance or 0), 2) == 20000.00
+            and round(float(account_exists.savings or 0), 2) == 5000.00
+            and round(float(account_exists.monthly_salary or 0), 2) == 6500.00
+        )
+        if txn_count >= 400 and has_exact_demo_balance:
             return {
                 "status": "already_seeded",
                 "message": "Database already contains customer and transaction data.",
@@ -355,7 +359,16 @@ def ensure_robert_demo_data(db: Session, force_restore: bool = False):
         cust = db.query(Customer).filter(Customer.customer_id == 1).first()
         acc = db.query(Account).filter(Account.customer_id == 1).first()
         tx_count = db.query(Transaction).filter(Transaction.customer_id == 1).count()
-        if force_restore or not cust or not acc or float(acc.balance or 0) == 0.0 or tx_count == 0:
+        needs_restore = (
+            force_restore
+            or not cust
+            or not acc
+            or round(float(acc.balance or 0), 2) != 20000.00
+            or round(float(acc.savings or 0), 2) != 5000.00
+            or round(float(acc.monthly_salary or 0), 2) != 6500.00
+            or tx_count < 400
+        )
+        if needs_restore:
             if force_restore and tx_count > 0:
                 db.query(Transaction).filter(Transaction.customer_id == 1).delete()
                 db.commit()

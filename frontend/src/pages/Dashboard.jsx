@@ -14,7 +14,7 @@ import DashboardCards from "../components/DashboardCards";
 import SpendingChart from "../components/SpendingChart";
 import RecentTransactions from "../components/RecentTransactions";
 import AIRecommendation from "../components/AIRecommendation";
-import { Globe, Trash2, UploadCloud, LogOut, Landmark } from "lucide-react";
+import { Globe, Trash2, UploadCloud, LogOut, Landmark, UserX, ShieldAlert, Lock, X } from "lucide-react";
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -36,17 +36,29 @@ export default function Dashboard() {
 
   const [clearing, setClearing] = useState(false);
   const [demoCleared, setDemoCleared] = useState(false);
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  // Delete Account Modal state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
 
     // 1. Direct Robert Wilson demo route: /robert-dashboard
-    // On page load / refresh / hard refresh, demoCleared is false so backend automatically restores $20,000 demo data
+    // On page load / F5 / hard refresh, reset demo balance back to $20,000.00
     if (userSlug === "robert") {
       setUser(DEMO_ROBERT_USER);
       setLang("en");
       setDemoCleared(false);
       sessionStorage.setItem("hasActiveStatement", "true");
+      fetch(`${API_BASE}/demo/reset/1`, { method: "POST" })
+        .then(() => {
+          if (isMounted) setRefreshTick((t) => t + 1);
+        })
+        .catch(() => {});
       return;
     }
 
@@ -104,6 +116,8 @@ export default function Dashboard() {
   };
 
   const activeSlug = userSlug || getUserSlug(user) || "user";
+  const customerId = user?.customer_id || user?.id || 1;
+  const isDemoAccount = userSlug === "robert" || Number(customerId) === 1;
 
   const handleClearData = async () => {
     if (!user) return;
@@ -136,6 +150,64 @@ export default function Dashboard() {
     }
   };
 
+  const handleOpenDeleteModal = () => {
+    setDeletePassword("");
+    setDeleteError("");
+    setShowDeleteModal(true);
+  };
+
+  const handleDeleteAccount = async (e) => {
+    if (e) e.preventDefault();
+    if (!deletePassword.trim()) {
+      setDeleteError(
+        isDemoAccount
+          ? "Please enter the Admin Password to delete the demo account."
+          : "Please enter your login password to delete your account."
+      );
+      return;
+    }
+
+    setDeletingAccount(true);
+    setDeleteError("");
+    try {
+      const res = await fetch(`${API_BASE}/auth/delete-account`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customer_id: customerId,
+          email: user?.email || "",
+          password: deletePassword.trim(),
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDeleteError(
+          data.detail ||
+            (isDemoAccount
+              ? "Access Denied: Invalid Admin Password."
+              : "Incorrect password. Account could not be deleted.")
+        );
+        setDeletingAccount(false);
+        return;
+      }
+
+      // Clear local & session storage and redirect to Create Account (/register)
+      localStorage.removeItem("isLoggedIn");
+      localStorage.removeItem("user");
+      localStorage.removeItem(`user_by_slug_${activeSlug}`);
+      sessionStorage.removeItem("hasActiveStatement");
+      sessionStorage.removeItem(`active_customer_id_${activeSlug}`);
+      setShowDeleteModal(false);
+      navigate("/register");
+    } catch (err) {
+      console.error("Delete account error:", err);
+      setDeleteError("Unable to reach server. Please try again.");
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
+
   // Safe fallback UI if user is still synchronizing
   if (!user) {
     return (
@@ -146,7 +218,6 @@ export default function Dashboard() {
     );
   }
 
-  const customerId = user.customer_id || user.id || 1;
   const currencySymbol = user.currency_symbol || "$";
   const currencyCode = user.currency_code || "USD";
 
@@ -169,7 +240,7 @@ export default function Dashboard() {
         </div>
 
         {/* Right Nav Actions */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           {/* Language Switcher */}
           <div className="flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-300">
             <Globe size={15} className="text-cyan-400" />
@@ -207,6 +278,16 @@ export default function Dashboard() {
             <span className="hidden sm:inline">{clearing ? "Clearing..." : t("clearData", lang)}</span>
           </button>
 
+          {/* Delete Account Button */}
+          <button
+            onClick={handleOpenDeleteModal}
+            className="flex items-center gap-1.5 bg-slate-800 hover:bg-red-950/80 border border-red-500/40 hover:border-red-500 text-red-300 hover:text-red-200 px-3.5 py-2 rounded-xl text-xs font-semibold transition cursor-pointer"
+            title="Delete Account"
+          >
+            <UserX size={15} className="text-red-400" />
+            <span className="hidden sm:inline">Delete Account</span>
+          </button>
+
           {/* Logout Button */}
           <button
             onClick={handleLogout}
@@ -218,8 +299,84 @@ export default function Dashboard() {
         </div>
       </nav>
 
+      {/* Delete Account Password Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm px-4">
+          <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-red-500/40 p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-red-500/15 text-red-400">
+                  <ShieldAlert size={22} />
+                </div>
+                <h3 className="text-lg font-bold text-white">
+                  {isDemoAccount ? "Demo Account Protection" : "Delete Account"}
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                className="text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleDeleteAccount} className="mt-4 space-y-4">
+              {isDemoAccount ? (
+                <p className="text-sm text-slate-300 leading-relaxed">
+                  <strong>Robert Wilson</strong> is the protected Demo Account. Standard users are not permitted to delete it. Please enter the <strong>Admin Password</strong> to proceed.
+                </p>
+              ) : (
+                <p className="text-sm text-slate-300 leading-relaxed">
+                  Are you sure you want to permanently delete the account for <strong>{user.full_name}</strong>? Please enter your <strong>login password</strong> to confirm.
+                </p>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                  {isDemoAccount ? "Admin Password" : "Your Login Password"}
+                </label>
+                <div className="flex items-center gap-2 rounded-xl bg-slate-800 border border-slate-700 px-3.5 py-2.5 focus-within:border-red-400">
+                  <Lock size={16} className="text-slate-400" />
+                  <input
+                    type="password"
+                    value={deletePassword}
+                    onChange={(e) => setDeletePassword(e.target.value)}
+                    placeholder={isDemoAccount ? "Enter Admin Password" : "Enter your login password"}
+                    className="w-full bg-transparent text-sm text-white outline-none"
+                    autoFocus
+                  />
+                </div>
+              </div>
+
+              {deleteError && (
+                <div className="rounded-xl bg-red-500/10 border border-red-500/40 p-3 text-xs text-red-300">
+                  {deleteError}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteModal(false)}
+                  className="rounded-xl bg-slate-800 hover:bg-slate-700 px-4 py-2 text-xs font-semibold text-slate-300 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={deletingAccount}
+                  className="rounded-xl bg-red-600 hover:bg-red-700 px-5 py-2 text-xs font-semibold text-white shadow-lg shadow-red-600/30 cursor-pointer disabled:opacity-50"
+                >
+                  {deletingAccount ? "Deleting..." : "Confirm & Delete Account"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Main Dashboard Section */}
-      <section className="max-w-7xl mx-auto px-6 md:px-10 py-8">
+      <section className="max-w-7xl mx-auto px-6 md:px-10 py-8" key={`dash-${refreshTick}`}>
         <DashboardHeader user={user} lang={lang} />
 
         <DashboardCards customerId={customerId} currencySymbol={currencySymbol} currencyCode={currencyCode} lang={lang} cleared={demoCleared} />

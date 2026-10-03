@@ -389,6 +389,80 @@ def forgot_password(body: dict, db: Session = Depends(get_db)):
     }
 
 
+def perform_user_deletion(db: Session, customer_id: int, user_obj: Optional[User] = None, cust_obj: Optional[Customer] = None):
+    """Delete all banking records and user credentials for a non-demo user."""
+    cids = {int(customer_id)}
+    if user_obj and user_obj.id:
+        cids.add(int(user_obj.id))
+    if cust_obj and cust_obj.customer_id:
+        cids.add(int(cust_obj.customer_id))
+    # Never delete customer_id 1 rows from DB so demo can always be re-seeded
+    cids.discard(1)
+
+    for cid in cids:
+        db.query(Transaction).filter(Transaction.customer_id == cid).delete()
+        db.query(Card).filter(Card.customer_id == cid).delete()
+        db.query(Loan).filter(Loan.customer_id == cid).delete()
+        db.query(Recommendation).filter(Recommendation.customer_id == cid).delete()
+        db.query(Account).filter(Account.customer_id == cid).delete()
+        db.query(Customer).filter(Customer.customer_id == cid).delete()
+
+    if user_obj and user_obj.id != 1:
+        db.query(User).filter(User.id == user_obj.id).delete()
+    elif cust_obj and cust_obj.email and cust_obj.customer_id != 1:
+        db.query(User).filter(User.email == cust_obj.email).delete()
+
+    db.commit()
+
+
+@app.post("/auth/delete-account")
+def delete_account(body: dict, db: Session = Depends(get_db)):
+    customer_id = int(body.get("customer_id") or body.get("id") or 0)
+    email = (body.get("email") or "").strip().lower()
+    password = (body.get("password") or "").strip()
+
+    if not password:
+        raise HTTPException(status_code=400, detail="Password is required to delete the account")
+
+    # Demo Account (Robert Wilson) protection: requires Admin Password 'robert@123'
+    if customer_id == 1 or email in ("robert.wilson@demo.com", "robert.wilson@apexbank.com"):
+        if password != "robert@123":
+            raise HTTPException(
+                status_code=403,
+                detail="Access Denied: Invalid Admin Password. Demo account cannot be deleted without the admin password."
+            )
+        return {
+            "status": "success",
+            "message": "Admin password verified. Demo account deletion completed.",
+            "redirect": "/register"
+        }
+
+    customer = db.query(Customer).filter(Customer.customer_id == customer_id).first()
+    user = db.query(User).filter(User.id == customer_id).first()
+    if not user and email:
+        user = db.query(User).filter(User.email == email).first()
+    if not user and customer and customer.email:
+        user = db.query(User).filter(User.email == customer.email).first()
+
+    if not user and not customer:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    if user:
+        if not verify_password(password, user.password_hash):
+            raise HTTPException(
+                status_code=401,
+                detail="Incorrect login password. Please enter your valid account password to delete your account."
+            )
+
+    perform_user_deletion(db, customer_id, user_obj=user, cust_obj=customer)
+
+    return {
+        "status": "success",
+        "message": "Your account and all associated data have been permanently deleted.",
+        "redirect": "/register"
+    }
+
+
 @app.get("/auth/me")
 def get_current_user_info(customer_id: int = 1, db: Session = Depends(get_db)):
     if int(customer_id) == 1:
@@ -1045,6 +1119,40 @@ def advisor(
 from fastapi import Body
 
 
+def _is_cancel_delete(q: str) -> bool:
+    q_low = (q or "").lower().strip()
+    return q_low in (
+        "cancel", "stop", "abort", "no", "nahi", "nhi", "mat karo",
+        "keep", "keep my account", "don't delete", "dont delete", "rehne do"
+    )
+
+
+def _is_delete_account_intent(q: str) -> bool:
+    q_low = (q or "").lower()
+    has_action = any(w in q_low for w in [
+        "delete", "remove", "close", "deactivate", "band", "hata", "khatam",
+        "डिलीट", "हटा", "बंद", "समाप्त"
+    ])
+    has_target = any(w in q_low for w in [
+        "account", "profile", "khata", "खाता", "अकाउंट", "प्रोफाइल"
+    ])
+    return (has_action and has_target) or q_low.strip() in (
+        "delete my account", "delete account", "account delete", "mera account delete karo"
+    )
+
+
+def _is_confirm_delete_intent(q: str) -> bool:
+    q_low = (q or "").lower().strip()
+    if _is_cancel_delete(q_low):
+        return False
+    if _is_delete_account_intent(q_low):
+        return True
+    return any(w in q_low for w in [
+        "yes", "haan", "ha", "sure", "confirm", "proceed", "still", "delete",
+        "kar do", "kardo", "karna", "चाहता", "हां", "हाँ", "कर दो", "ok", "yep", "yeah", "please"
+    ])
+
+
 @app.post("/ai/chat")
 def ai_chat(
     body: dict,
@@ -1053,6 +1161,7 @@ def ai_chat(
     customer_id = body.get("customer_id", 1)
     language = body.get("language", "en")
     cleared = bool(body.get("cleared", False))
+    delete_stage = (body.get("delete_stage") or "none").strip().lower()
 
     if int(customer_id) == 1 and not cleared:
         from app.seeder import ensure_robert_demo_data
@@ -1071,6 +1180,9 @@ def ai_chat(
     )
 
     user = db.query(User).filter(User.id == customer_id).first()
+    if not user and customer and customer.email:
+        user = db.query(User).filter(User.email == customer.email).first()
+
     if int(customer_id) == 1:
         currency_symbol = "$"
     else:
@@ -1114,11 +1226,178 @@ def ai_chat(
             db.add(account)
             db.commit()
 
+    question = (body.get("question") or body.get("message") or "").strip()
+    cust_name = customer.full_name if customer else (user.full_name if user else "Customer")
+    curr_bal = float(account.balance) if account else 0.0
+
+    # ---------------------------------------------------------
+    # 3-STEP CONVERSATIONAL ACCOUNT DELETION FLOW IN AI ADVISOR
+    # ---------------------------------------------------------
+    # Step 3: Awaiting password verification
+    if delete_stage == "awaiting_password":
+        if _is_cancel_delete(question):
+            msg = (
+                f"### ✅ Account Deletion Cancelled\n\n"
+                f"Great choice, **{cust_name}**! Your account and financial data remain completely safe and active. "
+                f"Ask me anything about your spending, savings, or loan options!"
+            )
+            return {
+                "customer": cust_name,
+                "question": question,
+                "answer": msg,
+                "reply": msg,
+                "delete_step": "none",
+                "account_deleted": False,
+                "account": {"balance": curr_bal, "status": "ACTIVE", "currency_symbol": currency_symbol},
+                "offer": None,
+            }
+
+        tokens = [question.strip()] + question.strip().split()
+        if int(customer_id) == 1:
+            # Demo account requires Admin Password: robert@123
+            if any(tok == "robert@123" for tok in tokens):
+                msg = (
+                    "### ✅ Admin Password Verified — Deleting Account...\n\n"
+                    "- 🛡️ **Admin Authorization:** Verified (`Robert Wilson` Demo Account)\n"
+                    "- 🗑️ **Deletion Process:** Clearing active session & account state...\n"
+                    "- 🔄 **Completed:** Redirecting you to the **Create Account** page..."
+                )
+                return {
+                    "customer": cust_name,
+                    "question": "••••••••",
+                    "answer": msg,
+                    "reply": msg,
+                    "delete_step": "deleted",
+                    "account_deleted": True,
+                    "account": {"balance": 0.0, "status": "DELETED", "currency_symbol": currency_symbol},
+                    "offer": None,
+                }
+            else:
+                msg = (
+                    "### ❌ Access Denied — Invalid Admin Password\n\n"
+                    "**Robert Wilson's Demo Account** is protected and cannot be deleted without the valid **Admin Password**.\n\n"
+                    "🛡️ Please enter the correct **Admin Password** in your next message to proceed, or type `cancel` to abort."
+                )
+                return {
+                    "customer": cust_name,
+                    "question": "••••••••",
+                    "answer": msg,
+                    "reply": msg,
+                    "delete_step": "awaiting_password",
+                    "account_deleted": False,
+                    "account": {"balance": curr_bal, "status": "ACTIVE", "currency_symbol": currency_symbol},
+                    "offer": None,
+                }
+        else:
+            # Regular user account: verify user's login password
+            is_valid_pwd = bool(user and any(verify_password(tok, user.password_hash) for tok in tokens))
+            if is_valid_pwd:
+                perform_user_deletion(db, int(customer_id), user_obj=user, cust_obj=customer)
+                msg = (
+                    f"### ✅ Password Verified — Account Deleted Successfully\n\n"
+                    f"- 🔐 **Identity Verified:** Password matched for **{cust_name}**\n"
+                    f"- 🗑️ **Deletion Process:** Removed all uploaded bank statements, transactions, and account credentials\n"
+                    f"- 🔄 **Completed:** Redirecting you to the **Create Account** page..."
+                )
+                return {
+                    "customer": cust_name,
+                    "question": "••••••••",
+                    "answer": msg,
+                    "reply": msg,
+                    "delete_step": "deleted",
+                    "account_deleted": True,
+                    "account": {"balance": 0.0, "status": "DELETED", "currency_symbol": currency_symbol},
+                    "offer": None,
+                }
+            else:
+                msg = (
+                    f"### ❌ Incorrect Account Password\n\n"
+                    f"The password you entered does not match the login password for **{cust_name}**.\n\n"
+                    f"🔑 Please enter your valid **login password** in your next response to delete your account, or type `cancel` to abort."
+                )
+                return {
+                    "customer": cust_name,
+                    "question": "••••••••",
+                    "answer": msg,
+                    "reply": msg,
+                    "delete_step": "awaiting_password",
+                    "account_deleted": False,
+                    "account": {"balance": curr_bal, "status": "ACTIVE", "currency_symbol": currency_symbol},
+                    "offer": None,
+                }
+
+    # Step 2: User was already convinced once and still insists on deleting
+    if delete_stage == "convinced_once":
+        if _is_cancel_delete(question):
+            msg = (
+                f"### 🎉 Glad You Decided to Stay, {cust_name}!\n\n"
+                f"Your account is completely safe and active. How can I help you optimize your finances today?"
+            )
+            return {
+                "customer": cust_name,
+                "question": question,
+                "answer": msg,
+                "reply": msg,
+                "delete_step": "none",
+                "account_deleted": False,
+                "account": {"balance": curr_bal, "status": "ACTIVE", "currency_symbol": currency_symbol},
+                "offer": None,
+            }
+        if _is_confirm_delete_intent(question):
+            if int(customer_id) == 1:
+                msg = (
+                    "### 🛡️ Demo Account Protection — Admin Password Required\n\n"
+                    "Since **Robert Wilson** is the protected **Demo Account**, standard users are not permitted to delete it.\n\n"
+                    "🔐 **Please enter the Admin Password in your next response** to start the account deletion process (or type `cancel` to abort)."
+                )
+            else:
+                msg = (
+                    f"### 🔐 Password Required to Delete Account\n\n"
+                    f"I respect your decision to delete your account (**{cust_name}**).\n\n"
+                    f"🔑 **Please enter your profile login password in your next response** so I can start the account deletion process (or type `cancel` to abort)."
+                )
+            return {
+                "customer": cust_name,
+                "question": question,
+                "answer": msg,
+                "reply": msg,
+                "delete_step": "awaiting_password",
+                "account_deleted": False,
+                "account": {"balance": curr_bal, "status": "ACTIVE", "currency_symbol": currency_symbol},
+                "offer": None,
+            }
+        # If they asked a normal financial question instead, reset delete_stage and answer normally
+        delete_stage = "none"
+
+    # Step 1: First time user asks AI Advisor to delete their account -> Convince them once!
+    if delete_stage == "none" and _is_delete_account_intent(question):
+        msg = (
+            f"### ⚠️ Wait, {cust_name}! Please Reconsider Deleting Your Account\n\n"
+            f"We'd hate to see you go! With your active AI Banking profile, you currently have access to:\n"
+            f"- 📊 **Smart Statement Analytics** (Current Balance: `{currency_symbol}{curr_bal:,.2f}`)\n"
+            f"- ❤️ **AI Financial Health Monitoring & Category Insights**\n"
+            f"- 💳 **Instant Pre-Approved Loan & EMI Discount Offers**\n\n"
+            f"💡 *Note: If you only want to remove your uploaded statement transactions, you can click **Clear Data** on the dashboard anytime while keeping your account!*\n\n"
+            f"👉 **Do you still want to permanently delete your account?** If you are sure, reply **\"Yes, delete my account\"** (or type `cancel` to keep your account)."
+        )
+        return {
+            "customer": cust_name,
+            "question": question,
+            "answer": msg,
+            "reply": msg,
+            "delete_step": "convinced_once",
+            "account_deleted": False,
+            "account": {"balance": curr_bal, "status": "ACTIVE", "currency_symbol": currency_symbol},
+            "offer": None,
+        }
+
     if not customer or not account:
         return {
-            "customer": user.full_name if user else "Customer",
-            "question": body.get("question", ""),
+            "customer": cust_name,
+            "question": question,
             "answer": "Please upload a bank statement to enable AI financial analysis.",
+            "delete_step": "none",
+            "account_deleted": False,
             "account": {
                 "balance": 0.0,
                 "status": "ACTIVE",
@@ -1141,7 +1420,6 @@ def ai_chat(
         transactions,
     )
 
-    question = body.get("question") or body.get("message") or ""
     offer = build_offer(
         customer,
         account,
@@ -1167,6 +1445,8 @@ def ai_chat(
         "question": question,
         "answer": answer,
         "reply": answer,
+        "delete_step": "none",
+        "account_deleted": False,
         "account": {
             "balance": float(account.balance),
             "status": account.status,
@@ -1318,6 +1598,9 @@ def spending_chart(customer_id: int = 1, cleared: bool = False, db: Session = De
 
 @app.post("/demo/reset/{customer_id}")
 def reset_demo_account(customer_id: int, db: Session = Depends(get_db)):
+    if int(customer_id) == 1:
+        from app.seeder import ensure_robert_demo_data
+        ensure_robert_demo_data(db, force_restore=False)
     account = db.query(Account).filter(
         Account.customer_id == customer_id
     ).first()
