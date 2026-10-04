@@ -1,187 +1,165 @@
-# AI Banking System - Render Migration & Fixes Documentation
+# AI Banking System — Render Migration, RAG Architecture & Code Fixes Documentation
 
-इस दस्तावेज़ में GCP से Render पर माइग्रेशन के दौरान आई समस्याओं, उनके मुख्य कारणों (Root Causes), और कोडबेस में किए गए सभी बदलावों (File-by-File Changes) का पूरा विवरण दिया गया है।
-
----
-
-## 📑 विषय-सूची (Table of Contents)
-1. [समस्या का सारांश (Problem Summary)](#1-समस्या-का-सारांश-problem-summary)
-2. [मुख्य कारण (Root Cause Analysis)](#2-मुख्य-कारण-root-cause-analysis)
-3. [परिवर्तित फाइलों की सूची (Modified & New Files)](#3-परिवर्तित-फाइलों-की-सूची-modified--new-files)
-4. [विस्तृत फाइल-वार परिवर्तन (File-by-File Detailed Changes)](#4-विस्तृत-फाइल-वार-परिवर्तन-file-by-file-detailed-changes)
-   - [backend/app/seeder.py [NEW]](#1-backendappseederpy-new)
-   - [backend/app/main.py [MODIFIED]](#2-backendappmainpy-modified)
-   - [backend/app/ai/gemini_service.py [MODIFIED]](#3-backendappai_gemini_servicepy-modified)
-   - [database/seed_data.py [MODIFIED]](#4-databaseseed_datapy-modified)
-   - [frontend/src/config.js [MODIFIED]](#5-frontendsrcconfigjs-modified)
-5. [सिस्टम आर्किटेक्चर फ्लो (System Architecture Flow)](#5-सिस्टम-आर्किटेक्चर-फ्लो-system-architecture-flow)
-6. [लाइव एंडपॉइंट्स व टेस्ट परिणाम (Live Verification)](#6-लाइव-एंडपॉइंट्स-व-टेस्ट-परिणाम-live-verification)
+This document provides a complete, file-by-file technical overview of the issues encountered during the cloud migration from GCP VM to Render Cloud, their root cause analysis, and all architectural and feature upgrades implemented across the codebase.
 
 ---
 
-## 1. समस्या का सारांश (Problem Summary)
-
-जब प्रोजेक्ट को GCP VM से Render Cloud पर शिफ्ट किया गया:
-1. **डैशबोर्ड पर शून्य डेटा**:
-   - Total Balance: `$0`
-   - Monthly Income: `$0`
-   - Monthly Expenses: `$0`
-   - Savings: `$0`
-   - Financial Health: `0 Unknown`
-   - AI Insights: खाली बुलेट बिंदु
-   - Spending Trend: खाली ग्राफ
-2. **AI Advisor काम नहीं कर रहा था**:
-   - `/ai/chat` पर सवाल पूछने पर AI का कोई रिस्पॉन्स नहीं आ रहा था (इंटरनल 500 एरर आ रहा था)।
-
----
-
-## 2. मुख्य कारण (Root Cause Analysis)
-
-1. **खाली PostgreSQL डेटाबेस (Empty Tables)**:
-   - Render पर ऐप स्टार्ट होने पर `Base.metadata.create_all(bind=engine)` केवल खाली स्कीमा/टेबल्स बनाता है, कोई डेटा इंसर्ट नहीं करता।
-   - `/dashboard` एंडपॉइंट `db.query(Account).first()` चेक करता है। अकाउंट न मिलने पर वह डिफ़ॉल्ट `$0` और `Unknown` रिटर्न करता है।
-2. **डॉकराइज़्ड बैकएंड में सेडर न होना**:
-   - Render का बैकएंड केवल `backend/` डायरेक्टरी को डॉकर कंटेनर में कॉपी करता है (`COPY backend .`)। रूट का `database/` फोल्डर डॉकर इमेज में मौजूद ही नहीं था, इसलिए बाहर की स्क्रिप्ट्स वहां रन नहीं हो सकती थीं।
-3. **Foreign Key Constraint एरर**:
-   - पुरानी `seed_data.py` में केवल `bank_transactions` में डेटा डालने की कोशिश की गई थी (`customer_id=1` के साथ), लेकिन Customer 1 (Robert Wilson) और उसका Account कभी डेटाबेस में बने ही नहीं थे।
-4. **Gemini API एरर हैंडलिंग व फॉलबैक की कमी**:
-   - `gemini_service.py` में `genai.Client` मॉड्यूल लोड होते ही इनिशियलाइज़ हो रहा था। यदि की (Key) लोड न हो या मॉडल में कोई समस्या आए, तो पूरा सर्वर क्रैश हो जाता था। साथ ही `/ai/chat` में `customer` न मिलने पर `customer.salary` कॉल करने से `AttributeError` आता था।
+## Table of Contents
+1. [Problem Summary](#1-problem-summary)
+2. [Root Cause Analysis](#2-root-cause-analysis)
+3. [Summary of Modified & New Files](#3-summary-of-modified--new-files)
+4. [File-by-File Detailed Changes](#4-file-by-file-detailed-changes)
+   - [backend/app/seeder.py](#1-backendappseederpy)
+   - [backend/app/main.py](#2-backendappmainpy)
+   - [backend/app/services/statement_parser.py](#3-backendappservicesstatement_parserpy)
+   - [backend/app/ai/financial_health.py](#4-backendappaifinancial_healthpy)
+   - [backend/app/ai/advisor.py](#5-backendappaiadvisorpy)
+   - [frontend/src/pages/Dashboard.jsx & Components](#6-frontendsrcpagesdashboardjsx--components)
+5. [System Architecture Flow](#5-system-architecture-flow)
+6. [Live Endpoints & Verification Results](#6-live-endpoints--verification-results)
 
 ---
 
-## 3. परिवर्तित फाइलों की सूची (Modified & New Files)
+## 1. Problem Summary
 
-| क्र. | फाइल पाथ | स्थिति | उद्देश्य |
+When migrating and scaling the platform on **Render Cloud**, the following issues were identified and resolved:
+1. **Empty Initial Database on Render:**
+   - Fresh PostgreSQL instances had empty tables (`Total Balance: $0`, `Monthly Income: $0`, `Monthly Expenses: $0`, `Savings: $0`), causing the Demo Account (`Robert Wilson`) to appear blank unless seeded automatically.
+2. **Multi-User Isolation & Statement-Driven Analytics:**
+   - Newly registered users needed strict data isolation so that demo account data (`Robert Wilson`) never leaked into custom accounts.
+   - Uploading a bank statement (`PDF`, `CSV`, `XLSX`, `DOCX`, `TXT`) needed to immediately populate all dashboard KPIs, charts, and AI Spending Insights strictly from the uploaded document.
+   - Uploading a bank statement with **$0 Balance and $0 Savings** needed to accurately classify Financial Health as **`Poor` (`20/100`)** rather than `Average`.
+3. **Personalized User URLs (`/<firstname>-dashboard`):**
+   - Users required dynamic, personalized routes based on their registered first name (e.g., `/aaditya-dashboard`, `/aaditya-dashboard/ai-advisor`, `/robert-dashboard`).
+4. **Demo Account Hard-Refresh (`F5`) Auto-Restore:**
+   - Clearing data in the demo account sets balances to `$0`, but pressing `F5` (Hard Refresh) needed to automatically restore Robert Wilson's `$20,000` balance and transaction history.
+5. **Account Deletion & Demo Protection Guardrails:**
+   - Users needed both a UI **Delete Account** button (with password verification) and a **3-step conversational AI Advisor deletion flow** (persuasion -> password prompt -> verified deletion & redirect to Sign Up), while protecting the Demo Account with the admin password (`robert@123`).
+
+---
+
+## 2. Root Cause Analysis
+
+1. **Empty PostgreSQL Schema on Cold Start:**
+   - Running `Base.metadata.create_all(bind=engine)` only creates database tables without inserting baseline demo records.
+   - Moving seeding logic inside `backend/app/main.py` on `@app.on_event("startup")` guarantees that Demo User `1` (**Robert Wilson**) is always initialized while keeping all other user accounts strictly isolated.
+2. **Zero-Transaction Bank Statement PDFs:**
+   - Certain bank statements (such as summary statements or newly opened accounts with `Opening Balance: INR 0.00` and `Closing Balance: INR 0.00`) contain `"No transactions found"` in the ledger section.
+   - Enhancing `statement_parser.py` to extract summary-level balances (`Closing Balance`, `Opening Balance`, `Total Credit Amount`, `Total Debit Amount`) ensures zero-balance PDFs are accurately recorded as `$0` uploaded statements.
+3. **Zero-Income Financial Health Scoring:**
+   - Previously, when `monthly_income == 0` and `monthly_expenses == 0`, the expense ratio defaulted to `0`, granting `40` points plus `10` base savings points (`50/100 = Average`).
+   - Adding an explicit zero-liquidity guardrail in `financial_health.py` ensures that when `total_balance <= 0` and `monthly_income <= 0`, the health score is **`20` (`Poor`)**.
+4. **Gemini API Resilience & RAG Grounding:**
+   - Initializing the LLM client lazily and injecting retrieved PostgreSQL aggregates into the prompt ensures zero-hallucination financial advice with a deterministic mathematical fallback if the external API quota is reached.
+
+---
+
+## 3. Summary of Modified & New Files
+
+| # | File Path | Status | Purpose |
 | :--- | :--- | :---: | :--- |
-| 1 | `backend/app/seeder.py` | **NEW** | Robert Wilson का कस्टमर, अकाउंट, कार्ड, यूज़र और 433 ट्रांसक्शन्स का ऑटो-सीडर |
-| 2 | `backend/app/main.py` | **MODIFIED** | स्टार्टअप हुक, `/seed` एंडपॉइंट, और ऑन-द-फ्लाई ऑटो-सीड फॉलबैक |
-| 3 | `backend/app/ai/gemini_service.py` | **MODIFIED** | सेफ क्लाइंट इनिशियलाइज़ेशन, मल्टी-मॉडल फॉलबैक, और एरर-प्रूफ एडवाइज़र |
-| 4 | `database/seed_data.py` | **MODIFIED** | डुप्लीकेट फंक्शन हटाया, CLI रन के लिए Customer/Account क्रिएशन जोड़ा |
-| 5 | `frontend/src/config.js` | **MODIFIED** | Render बैकएंड URL और लोकलहोस्ट का डायनामिक सपोर्ट |
+| 1 | `backend/app/main.py` | **MODIFIED** | Startup schema migrations, demo seeding, `/upload-statement`, `/financial-summary`, `/spending-insights`, `/reset-demo`, and `/delete-account` endpoints |
+| 2 | `backend/app/services/statement_parser.py` | **MODIFIED** | Multi-format bank statement parser (`PDF`, `CSV`, `XLSX`, `DOCX`, `TXT`) with Indian `INR`/`Cr`/`Dr` regex and summary balance extraction |
+| 3 | `backend/app/ai/financial_health.py` | **MODIFIED** | Deterministic Financial Health Score (`0–100`) with `Poor` status guardrail when Balance = `$0` and Savings = `$0` |
+| 4 | `backend/app/ai/advisor.py` | **MODIFIED** | Grounded Financial RAG engine with Google Gemini (`gemini-2.0-flash`) and 3-stage conversational account deletion workflow |
+| 5 | `frontend/src/pages/Dashboard.jsx` | **MODIFIED** | Personalized `/<username>-dashboard` controller, `F5` hard-refresh demo auto-restore, and statement-only data binding |
+| 6 | `frontend/src/components/AIRecommendation.jsx` | **MODIFIED** | Statement-driven AI Spending Insights and Category Breakdown UI |
 
 ---
 
-## 4. विस्तृत फाइल-वार परिवर्तन (File-by-File Detailed Changes)
+## 4. File-by-File Detailed Changes
 
-### 1. `backend/app/seeder.py` [NEW]
-- **उद्देश्य**: यह फाइल बैकएंड पैकेज के अंदर बनाई गई ताकि Render के Docker कंटेनर के अंदर स्वतः मौजूद रहे।
-- **मुख्य कार्य**:
-  - `generate_demo_transactions()`: फरवरी 2026 से सितंबर 2026 तक के 433 प्रामाणिक ट्रांसक्शन्स जनरेट करता है (सैलरी, किराया, बिजली बिल, ग्रॉसरी, डाइनिंग, फ्यूल, नेटफ्लिक्स, इलेक्ट्रॉनिक्स)।
-  - `seed_database(db, force=False)`:
-    - **Customer 1**: Robert Wilson (सैलरी: $6,500.00, स्टेटस: VERIFIED)
-    - **Account 1**: Savings Account ($20,000.00 बैलेंस, $5,000.00 सेविंग्स)
-    - **Card 1**: Visa Platinum कार्ड
-    - **User 1**: Robert Wilson लॉग-इन यूज़र
-    - **433 ट्रांसक्शन्स**: `bank_transactions` टेबल में इंसर्ट करता है।
-    - PostgreSQL सीक्वेंसेस को `setval` से रीसेट करता है ताकि नए रिकॉर्ड्स आसानी से इन्सर्ट हो सकें।
-  - `seed_database_if_empty(db)`: यदि टेबल्स खाली हों, तो अपने आप सीडिंग ट्रिगर करता है।
+### 1. `backend/app/seeder.py`
+- **Purpose:** Provides automated database seeding inside the backend container on Render.
+- **Key Functions:**
+  - Generates realistic baseline transactions for Demo User **Robert Wilson** (Salary, Housing, Utilities, Food, Transport, Entertainment, Shopping).
+  - Resets PostgreSQL primary-key sequences (`setval`) to prevent ID collisions when new users sign up.
 
 ---
 
-### 2. `backend/app/main.py` [MODIFIED]
-- **स्टार्टअप हुक**:
+### 2. `backend/app/main.py`
+- **Startup Hook & Schema Migrations:**
+  - Automatically creates tables, applies safe `ALTER TABLE` migrations (`password_hash`, `statement_type`), and seeds Demo User `1` (`Robert Wilson`) on startup.
+- **Statement-Driven Analytics Endpoints:**
+  - `POST /users/{user_id}/upload-statement`: Parses uploaded files, updates account balances, replaces prior statement transactions, and marks the account as statement-backed.
+  - `GET /users/{user_id}/financial-summary`: Computes `total_balance`, `monthly_income`, `monthly_expenses`, `savings`, and `health` strictly from the user's own account and statement records.
+  - `GET /users/{user_id}/spending-insights`: Generates personalized RAG insights and category breakdowns strictly from the user's parsed transactions (including critical liquidity alerts when Balance = `$0`).
+- **Demo Reset & Account Deletion Endpoints:**
+  - `POST /users/1/reset-demo`: Restores Robert Wilson's demo account to `$20,000.00` balance, `$8,500.00` monthly income, `$3,350.00` expenses, and `$5,150.00` savings.
+  - `POST /users/{user_id}/delete-account`: Verifies user password (or `robert@123` admin password for Demo User `1`) and permanently deletes the user's account and transactions.
+
+---
+
+### 3. `backend/app/services/statement_parser.py`
+- **Multi-Format Ingestion:** Supports `.pdf`, `.csv`, `.xlsx`, `.docx`, and `.txt` statements.
+- **Summary Balance Fallback:** Extracts `Closing Balance`, `Opening Balance`, `Total Credit Amount`, and `Total Debit Amount` from summary-only PDF statements (even when `No transactions found` appears in the table), ensuring `$0.00` statements are accurately reflected on the dashboard.
+
+---
+
+### 4. `backend/app/ai/financial_health.py`
+- **Zero-Liquidity Check:**
   ```python
-  @app.on_event("startup")
-  def startup():
-      Base.metadata.create_all(bind=engine)
-      try:
-          from app.database import SessionLocal
-          from app.seeder import seed_database_if_empty
-          with SessionLocal() as db:
-              seed_database_if_empty(db)
-      except Exception as e:
-          print(f"Startup seeding error: {e}")
+  if total_balance <= 0 and monthly_income <= 0:
+      return {
+          "score": 20 if monthly_expenses == 0 else 10,
+          "status": "Poor",
+          "savings_rate": 0.0,
+          "expense_ratio": 100.0 if monthly_expenses > 0 else 0.0,
+      }
   ```
-- **नया `/seed` एंडपॉइंट**:
-  ```python
-  @app.get("/seed")
-  @app.post("/seed")
-  def trigger_seed(force: bool = False, db: Session = Depends(get_db)):
-      from app.seeder import seed_database
-      return seed_database(db, force=force)
-  ```
-- **ऑन-द-फ्लाई ऑटो-सीड सुरक्षा**:
-  - `/dashboard`, `/ai/chat`, `/ai/financial-health/{customer_id}`, और `/demo/reset/{customer_id}` में चेक लगाया गया: यदि किसी कारण से कस्टमर या अकाउंट न मिले, तो यह क्रैश होने के बजाय तुरंत डेटाबेस को सीड करके सही रिस्पॉन्स लौटाता है।
+  Guarantees that an account with `$0` Total Balance and `$0` Savings receives a **`Poor`** Financial Health rating instead of `Average`.
 
 ---
 
-### 3. `backend/app/ai/gemini_service.py` [MODIFIED]
-- **सुरक्षित क्लाइंट लोडिंग**:
-  `genai.Client` को टॉप-लेवल पर क्रैश होने से बचाकर `get_client()` फंक्शन के माध्यम से सुरक्षित बनाया गया।
-- **मल्टीपल मॉडल सपोर्ट**:
-  ```python
-  candidate_models = [
-      "gemini-2.5-flash",
-      "gemini-2.0-flash",
-      "gemini-1.5-flash",
-      "gemini-3.5-flash"
-  ]
-  ```
-  क्रमबद्ध तरीके से उपलब्ध मॉडल का उपयोग करता है।
-- **फॉलबैक रिस्पॉन्स**:
-  यदि इंटरनेट ड्रॉप, कोटा लिमिट या ऑथेंटिकेशन समस्या आए, तो यह 500 एरर देने के बजाय `generate_local_advisor_fallback()` के माध्यम से Robert Wilson के वास्तविक वित्तीय आंकड़ों ($20,000 बैलेंस, $6,500 सैलरी) के आधार पर सटीक और व्यवहारिक सलाह लौटाता है।
+### 5. `backend/app/ai/advisor.py`
+- **RAG Context Injection:** Injects the user's real-time balance, income, expenses, savings rate, and top spending categories into Google Gemini (`gemini-2.0-flash`).
+- **Conversational Account Deletion State Machine:**
+  1. First deletion request -> Persuades the user to stay by highlighting financial insights.
+  2. Second confirmation -> Prompts the user to enter their account password (or `robert@123` for the demo account).
+  3. Password verification -> Deletes the account and triggers automatic frontend redirection to `/login?mode=register`.
 
 ---
 
-### 4. `database/seed_data.py` [MODIFIED]
-- लाइन 94 पर मौजूद पुराने डुप्लीकेट `get_connection()` को हटाया गया।
-- `get_connection()` में `DATABASE_URL` और लोकलहोस्ट दोनों का सपोर्ट दिया गया।
-- कोड को `if __name__ == "__main__":` में लपेटा गया ताकि इसे इम्पोर्ट करने पर स्वतः एग्जीक्यूट न हो।
-- ट्रांसक्शन्स डालने से पहले Customer 1, Account 1 और Card 1 का क्रिएशन जोड़ा गया (`ON CONFLICT DO NOTHING` के साथ) जिससे फॉरेन की का एरर खत्म हो गया।
+### 6. `frontend/src/pages/Dashboard.jsx` & Components
+- **Browser Reload Detection (`isBrowserReload()`):** Detects `F5` / hard refresh on the Demo Account (`user.id === 1`) and calls `resetDemoData(1)` before fetching dashboard metrics.
+- **Strict User Data Isolation:** Removed all hardcoded `Robert Wilson` fallback strings and demo KPI defaults for registered users.
 
 ---
 
-### 5. `frontend/src/config.js` [MODIFIED]
-- फ्रंटएंड के API बेस को स्मार्ट बनाया गया:
-  ```javascript
-  export const API_BASE =
-    (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_API_BASE) ||
-    (typeof window !== "undefined" &&
-    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
-      ? "http://localhost:8000"
-      : "https://ai-banking-system-3gzg.onrender.com");
-  ```
-  इससे ऐप लोकल मशीन पर `localhost:8000` और Render पर स्वतः `https://ai-banking-system-3gzg.onrender.com` से कनेक्ट होता है।
+## 5. System Architecture Flow
 
----
-
-## 5. सिस्टम आर्किटेक्चर फ्लो (System Architecture Flow)
-
-```
-[ User Browser / Frontend ]
+```text
+[ User Browser / React SPA (Render Static Site) ]
           |
-          v (HTTPS)
+          v (HTTPS REST API)
 [ Render Web Service (FastAPI Backend) ]
           |
-          +---> On Startup: Checks if Database is Empty
-          |           |
-          |           v (If empty)
-          |     [ app.seeder.py ]
+          +---> On Startup: Runs Schema Migrations & Seeds Demo User 1 (Robert Wilson)
+          |
+          +---> Statement Upload Pipeline (statement_parser.py)
           |           |
           |           v
-          |     Inserts Customer (Robert Wilson)
-          |     Inserts Account ($20,000 balance, $5,000 savings)
-          |     Inserts 433 Banking Transactions
+          |     Extracts Transactions + Summary Closing Balance (PDF/CSV/XLSX/DOCX)
+          |     Categorizes Merchants & Stores in PostgreSQL
           |
-          +---> [ Render Managed PostgreSQL Database ]
-          |
-          +---> [ Gemini AI Service (Google GenAI) ]
+          +---> Financial RAG Engine (advisor.py + financial_health.py)
                       |
-                      +---> Live Gemini API (New API Key)
-                      +---> Intelligent Fallback (Zero downtime guarantee)
+                      +---> Retrieves Real User Ledger Aggregates from PostgreSQL
+                      +---> Computes Health Score (0-100: Poor / Average / Good)
+                      +---> Grounds Google Gemini 2.0 Flash Responses in Real User Data
 ```
 
 ---
 
-## 6. लाइव एंडपॉइंट्स व टेस्ट परिणाम (Live Verification)
+## 6. Live Endpoints & Verification Results
 
-सभी परिवर्तन Git Commit `06125d3` के साथ GitHub पर पुश किए गए और Render ने इन्हें सफलतापूर्वक बिल्ड व डिप्लॉय किया:
-
-| एंडपॉइंट | मेथड | परिणाम | विवरण |
+| Endpoint | Method | Status | Description |
 | :--- | :---: | :---: | :--- |
-| `/seed` | `GET` | `200 OK` | `customer_id: 1, transactions_count: 433` |
-| `/dashboard` | `GET` | `200 OK` | Balance: `$20,000`, Income: `$6,500`, Expenses: `$29,057.12`, Health: `70 Average` |
-| `/spending-chart` | `GET` | `200 OK` | Feb से Sep तक का मासिक खर्च डेटा |
-| `/ai/financial-health/1` | `GET` | `200 OK` | स्कोर 70, 4 AI एडवाइस बुलेट प्वाइंट्स |
-| `/ai/analyze/1` | `GET` | `200 OK` | उच्चतम श्रेणी: Rent ($14,400), 7 श्रेणियों का ब्रेकडाउन |
-| `/ai/chat` | `POST` | `200 OK` | **Gemini AI द्वारा लाइव जनरेटेड वित्तीय सलाह + पर्सनलाइज्ड ऑफर कार्ड** |
+| `/auth/register` | `POST` | `200 OK` | Creates isolated user account & routes to `/<firstname>-dashboard` |
+| `/auth/demo-login` | `POST` | `200 OK` | Logs into Robert Wilson Demo Account (`/robert-dashboard`) with `$20,000` balance |
+| `/users/{id}/upload-statement` | `POST` | `200 OK` | Parses `PDF`/`CSV`/`XLSX`/`DOCX` statements and updates user ledger |
+| `/users/{id}/financial-summary` | `GET` | `200 OK` | Returns statement-grounded Balance, Income, Expenses, Savings, and Health Status |
+| `/users/{id}/spending-insights` | `GET` | `200 OK` | Returns statement-grounded AI Spending Insights & Category Breakdown |
+| `/users/1/reset-demo` | `POST` | `200 OK` | Automatically restores Demo Account to `$20,000` on hard refresh (`F5`) |
+| `/users/{id}/delete-account` | `POST` | `200 OK` | Verifies password (`robert@123` for demo) and deletes user account |
+| `/ai/chat` | `POST` | `200 OK` | Grounded RAG Financial Advisor + 3-stage conversational account deletion |
